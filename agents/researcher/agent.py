@@ -38,6 +38,12 @@ GENERIC_TRANSITIONS = (
     "moving on to",
     "first off",
 )
+GENERIC_MAIN_SHIFT_MARKERS = (
+    "multiple high-impact events",
+    "strategic landscape",
+    "regional instability",
+    "escalating conflict between iran and its adversaries",
+)
 
 
 class ResearcherAgent(BaseAgent):
@@ -329,6 +335,22 @@ class ResearcherAgent(BaseAgent):
             )
         return lenses
 
+    def _fallback_main_shift_from_fact_pack(self, fact_pack: FactPack) -> str:
+        buckets = {event.bucket for event in fact_pack.selected_events}
+        if (
+            ("regional_cost_surface" in buckets or "commerce_and_shipping" in buckets)
+            and "endurance_and_attrition" in buckets
+        ):
+            return (
+                "Iran appears to be widening the war's cost surface across Gulf infrastructure "
+                "and coalition systems while leaning on endurance pressure."
+            )
+        if "regional_cost_surface" in buckets:
+            return "Iran appears to be widening the battlespace so the region, not just Israel, feels the war directly."
+        if "endurance_and_attrition" in buckets:
+            return "The conflict is shifting toward endurance pressure and cumulative system strain rather than a simple strike-for-strike exchange."
+        return "The war is becoming structurally more dangerous, with pressure spreading beyond the immediate strike exchange."
+
     def _normalize_frame(self, raw_frame: dict, fact_pack: FactPack) -> dict | None:
         if not isinstance(raw_frame, dict):
             return None
@@ -386,14 +408,22 @@ class ResearcherAgent(BaseAgent):
         if isinstance(raw_watchpoints, list):
             watchpoints = [self._shorten(str(item).strip(), 120) for item in raw_watchpoints if str(item).strip()][:4]
 
-        if not main_shift and fact_pack.selected_events:
-            main_shift = self._shorten(
-                f"The main shift is around {fact_pack.selected_events[0].bucket.replace('_', ' ')}.",
-                180,
-            )
+        if (not main_shift or any(marker in main_shift.lower() for marker in GENERIC_MAIN_SHIFT_MARKERS)) and fact_pack.selected_events:
+            main_shift = self._shorten(self._fallback_main_shift_from_fact_pack(fact_pack), 180)
 
+        fallback_lenses = self._fallback_lenses_from_fact_pack(fact_pack)
         if not core_lenses:
-            core_lenses = self._fallback_lenses_from_fact_pack(fact_pack)
+            core_lenses = fallback_lenses
+        else:
+            existing_labels = {str(item.get("label") or "").strip().lower() for item in core_lenses}
+            for lens in fallback_lenses:
+                label = str(lens.get("label") or "").strip().lower()
+                if label in existing_labels:
+                    continue
+                core_lenses.append(lens)
+                existing_labels.add(label)
+                if len(core_lenses) >= 4:
+                    break
 
         if not main_shift or not core_lenses:
             return None
@@ -423,14 +453,11 @@ class ResearcherAgent(BaseAgent):
 
     def _compact_evidence_block(self, fact_pack: FactPack) -> str:
         lines = []
-        for event in fact_pack.selected_events[:6]:
+        for event in fact_pack.selected_events[:4]:
             lines.append(
                 f"{event.evidence_id} [{event.bucket}] "
-                f"{self._shorten(event.title, 72)} | {self._shorten(event.summary, 86)}"
+                f"{self._shorten(event.title, 54)} | {self._shorten(event.summary, 62)}"
             )
-        internet_summary = str((fact_pack.internet_status or {}).get("summary") or "").strip()
-        if internet_summary:
-            lines.append(f"INT {self._shorten(internet_summary, 90)}")
         return "\n".join(lines)
 
     def _build_prose_prompt(self, frame: dict, fact_pack: FactPack, issues: list[str] | None = None) -> str:
@@ -516,15 +543,20 @@ class ResearcherAgent(BaseAgent):
         return self._normalize_frame(raw_frame, fact_pack)
 
     async def _write_prose(self, frame: dict, fact_pack: FactPack, issues: list[str] | None = None) -> str:
+        prompt = self._build_prose_prompt(frame, fact_pack, issues=issues)
+        max_tokens = int(self.ui_current_picture_prose_max_tokens)
+        tpm_cap = self._effective_tpm_cap(self.ui_current_picture_prose_model)
+        while max_tokens > 220 and self.estimate_tokens(prompt, max_tokens) > int(tpm_cap * 0.94):
+            max_tokens -= 32
         generated = await self.llm(
-            self._build_prose_prompt(frame, fact_pack, issues=issues),
+            prompt,
             model=self.ui_current_picture_prose_model,
-            max_tokens=self.ui_current_picture_prose_max_tokens,
+            max_tokens=max_tokens,
             temperature=0.65,
             expect_json=False,
             lane="background",
             background_prompt_char_limit=max(2600, self.ui_current_picture_fact_pack_char_limit + 400),
-            background_max_tokens_limit=self.ui_current_picture_prose_max_tokens,
+            background_max_tokens_limit=max_tokens,
         )
         return self._trim_incomplete_tail(str(generated or "").strip())
 
