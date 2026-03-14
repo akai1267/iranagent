@@ -19,12 +19,13 @@ The startup script no longer launches monitor/orchestrator/source-monitor proces
 ## How Current Picture Works
 
 1. Fetch source payload from `https://www.iranmonitor.org/api/export-prompt`
-2. Append style instruction from `UI_CURRENT_PICTURE_STYLE_PROMPT`
-3. Generate output with Groq
+2. Build a deterministic fact pack from the full export, prioritizing key events and suppressing noisy dashboard sections
+3. Run a staged Groq pipeline: `fast` frame -> `standard` prose -> `fast` verifier
 4. Persist snapshot in SQLite (`/memory/posts.db`, `context_snapshots` as `ui_current_picture`)
 5. Frontend polls `GET /current-picture/latest`
 
 Generation is guarded against abrupt cutoffs by trimming incomplete trailing fragments when a response hits token limits.
+The prose-stage style prompt is preserved; quality improvements come from input selection and verification rather than rewriting the user-facing tone prompt.
 
 ## Endpoints Used by UI
 

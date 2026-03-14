@@ -34,6 +34,9 @@ class CurrentPictureLatestResponse(BaseModel):
     source_generated_at: Optional[str] = None
     source_url: Optional[str] = None
     model: Optional[str] = None
+    model_chain: list[str] = Field(default_factory=list)
+    pipeline_version: Optional[str] = None
+    quality_flags: list[str] = Field(default_factory=list)
     age_seconds: Optional[int] = None
     stale: bool = False
     last_attempt_at: Optional[str] = None

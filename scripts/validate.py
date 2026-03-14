@@ -64,7 +64,16 @@ def check_current_picture(base: str) -> CheckResult:
 
     generated_at = payload.get("generated_at")
     stale = payload.get("stale")
-    return CheckResult(True, f"current picture loaded (generated_at={generated_at}, stale={stale})")
+    pipeline_version = str(payload.get("pipeline_version") or "").strip()
+    model_chain = payload.get("model_chain") or []
+    if not pipeline_version:
+        return CheckResult(False, "current-picture payload missing pipeline_version")
+    if not isinstance(model_chain, list) or len(model_chain) < 3:
+        return CheckResult(False, "current-picture payload missing staged model_chain metadata")
+    return CheckResult(
+        True,
+        f"current picture loaded (generated_at={generated_at}, stale={stale}, pipeline={pipeline_version})",
+    )
 
 
 def check_deprecated_route(base: str) -> CheckResult:

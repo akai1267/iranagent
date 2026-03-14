@@ -729,7 +729,11 @@ class BaseAgent:
             token_limit_override=background_max_tokens_limit,
         )
         if expect_json:
-            prompt_limit = self.background_prompt_limits.get(model) if lane == "background" else None
+            prompt_limit = None
+            if lane == "background":
+                prompt_limit = self.background_prompt_limits.get(model)
+                if background_prompt_char_limit is not None and int(background_prompt_char_limit) > 0:
+                    prompt_limit = int(background_prompt_char_limit)
             prompt_for_call = self._enforce_json_prompt(prompt_for_call, max_len=prompt_limit)
         tokens_estimate = self.estimate_tokens(prompt_for_call, max_tokens_for_call)
 
