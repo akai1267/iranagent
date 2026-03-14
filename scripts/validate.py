@@ -752,7 +752,7 @@ def researcher_context_pipeline_wired() -> CheckResult:
 def context_api_routes_present() -> CheckResult:
     text = read_file(ROOT / "api" / "main.py")
     required = [
-        "@app.get(\"/context/current-picture\"",
+        "@app.get(\"/current-picture/latest\"",
         "@app.get(\"/context/structural\"",
         "@app.get(\"/context/documents\"",
         "@app.get(\"/context/status\"",
@@ -761,6 +761,33 @@ def context_api_routes_present() -> CheckResult:
     if missing:
         return CheckResult(False, f"Missing context API routes: {missing}", critical=True)
     return CheckResult(True, "Context API routes are present")
+
+
+def current_picture_latest_endpoint_live() -> CheckResult:
+    if httpx is None:
+        return CheckResult(False, "httpx package not installed")
+    try:
+        response = httpx.get(f"{api_base()}/current-picture/latest", timeout=3)
+        if response.status_code == 404:
+            return CheckResult(True, "/current-picture/latest warming up (404)")
+        if response.status_code != 200:
+            return CheckResult(False, f"/current-picture/latest returned HTTP {response.status_code}")
+        payload = response.json()
+    except Exception as exc:  # noqa: BLE001
+        return CheckResult(False, f"/current-picture/latest request failed: {exc}")
+
+    required = {
+        "generated_at",
+        "content",
+        "source_generated_at",
+        "source_url",
+        "model",
+        "age_seconds",
+        "stale",
+    }
+    if not required.issubset(set(payload.keys())):
+        return CheckResult(False, "/current-picture/latest missing required fields")
+    return CheckResult(True, "/current-picture/latest responds with expected schema")
 
 
 def context_status_endpoint_live() -> CheckResult:
@@ -1114,6 +1141,7 @@ CHECKS: dict[str, list[tuple[str, Callable[[], CheckResult]]]] = {
         ("orchestrator_medium_suppression_wired", orchestrator_medium_suppression_wired),
         ("researcher_context_pipeline_wired", researcher_context_pipeline_wired),
         ("context_api_routes_present", context_api_routes_present),
+        ("current_picture_latest_endpoint_live", current_picture_latest_endpoint_live),
         ("context_status_endpoint_live", context_status_endpoint_live),
         ("briefing_pack_api_routes_present", briefing_pack_api_routes_present),
         ("context_status_includes_brief_pack_fields", context_status_includes_brief_pack_fields),

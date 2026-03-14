@@ -41,6 +41,11 @@ Optional but useful strict-saver values:
 - `WRITER_PIPELINE_V2=true`
 - `RESEARCHER_EDITORIAL_BRIEF_PATH=/config/editorial_brief.md`
 - `RESEARCHER_CURRENT_PICTURE_BRIEF_PATH=/config/current_picture_brief.md`
+- `UI_CURRENT_PICTURE_ENABLED=true`
+- `UI_CURRENT_PICTURE_INTERVAL_SEC=10800`
+- `UI_CURRENT_PICTURE_MODEL=standard`
+- `UI_CURRENT_PICTURE_MAX_TOKENS=700`
+- `UI_CURRENT_PICTURE_SOURCE_URL=https://www.iranmonitor.org/api/export-prompt`
 
 ## 4. Build and start
 
@@ -70,12 +75,13 @@ No separate migration job is required for current schema path.
 Run these checks after each deploy:
 
 1. `GET /health` returns all agents `ok`
-2. `GET /context/status` returns valid snapshot/provider state
-3. `GET /briefing-pack/latest` returns current pack
-4. `GET /posts` returns items with additive provenance fields (`claim_map`, `evidence_refs`)
-5. `GET /observatory/recent` returns sequenced events
-6. Frontend loads and tabs render correctly
-7. `GET /posts/{id}/evidence` returns internal provenance for a recent post
+2. `GET /current-picture/latest` returns tab payload (or 404 warming up on first boot)
+3. `GET /context/status` returns valid snapshot/provider state
+4. `GET /briefing-pack/latest` returns current pack
+5. `GET /posts` returns items with additive provenance fields (`claim_map`, `evidence_refs`)
+6. `GET /observatory/recent` returns sequenced events
+7. Frontend loads and tabs render correctly
+8. `GET /posts/{id}/evidence` returns internal provenance for a recent post
 
 ## 7. Branch and release workflow
 

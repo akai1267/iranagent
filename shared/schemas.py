@@ -69,6 +69,18 @@ class ContextSnapshotResponse(BaseModel):
     sources: list[ContextDocumentRef]
 
 
+class CurrentPictureLatestResponse(BaseModel):
+    generated_at: str
+    content: str
+    source_generated_at: Optional[str] = None
+    source_url: Optional[str] = None
+    model: Optional[str] = None
+    age_seconds: Optional[int] = None
+    stale: bool = False
+    last_attempt_at: Optional[str] = None
+    last_error: Optional[str] = None
+
+
 class ContextStatusResponse(BaseModel):
     last_successful_refresh_at: Optional[str] = None
     structural_age_seconds: Optional[int] = None

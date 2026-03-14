@@ -47,6 +47,12 @@ Lead with the best read, use dense natural paragraphs, and prefer concrete opera
 CURRENT_PICTURE_BRIEF_FALLBACK = """Write a compact analyst brief that explains the operating baseline, what changed, what did not, and what to watch next.
 Keep it specific, paragraph-based, and anchored in authoritative reporting."""
 
+UI_CURRENT_PICTURE_STYLE_PROMPT_DEFAULT = (
+    "do phd level analysis n draw insights. write in fluffy paragraphs but not formal, "
+    "like how u would say to a friend"
+)
+UI_CURRENT_PICTURE_ALLOWED_MODELS = {"fast", "standard", "deep"}
+
 CALL_MODELS = {
     "post_judgment": "fast",
     "stream_assessment": "fast",
@@ -298,6 +304,33 @@ class ResearcherAgent(BaseAgent):
             self.call_models["update_theories"] = "standard"
             self.call_models["answer_question"] = "standard"
         self.context_ready = False
+        self.ui_current_picture_enabled = os.environ.get("UI_CURRENT_PICTURE_ENABLED", "true").strip().lower() == "true"
+        self.ui_current_picture_interval_sec = self._env_int("UI_CURRENT_PICTURE_INTERVAL_SEC", 10800, minimum=300)
+        self.ui_current_picture_source_url = (
+            os.environ.get("UI_CURRENT_PICTURE_SOURCE_URL", "https://www.iranmonitor.org/api/export-prompt").strip()
+            or "https://www.iranmonitor.org/api/export-prompt"
+        )
+        requested_model = os.environ.get("UI_CURRENT_PICTURE_MODEL", "standard").strip().lower() or "standard"
+        self.ui_current_picture_model = (
+            requested_model if requested_model in UI_CURRENT_PICTURE_ALLOWED_MODELS else "standard"
+        )
+        self.ui_current_picture_max_tokens = self._env_int("UI_CURRENT_PICTURE_MAX_TOKENS", 700, minimum=120)
+        self.ui_current_picture_style_prompt = (
+            os.environ.get(
+                "UI_CURRENT_PICTURE_STYLE_PROMPT",
+                UI_CURRENT_PICTURE_STYLE_PROMPT_DEFAULT,
+            ).strip()
+            or UI_CURRENT_PICTURE_STYLE_PROMPT_DEFAULT
+        )
+        self.ui_current_picture_prompt_char_limit = self._env_int(
+            "UI_CURRENT_PICTURE_PROMPT_CHAR_LIMIT",
+            12000,
+            minimum=2000,
+        )
+        self.ui_current_picture_last_attempt_state_key = "ui_current_picture:last_attempt_at"
+        self.ui_current_picture_last_success_state_key = "ui_current_picture:last_success_at"
+        self.ui_current_picture_last_prompt_hash_state_key = "ui_current_picture:last_prompt_hash"
+        self.ui_current_picture_last_error_state_key = "ui_current_picture:last_error"
 
     def _model_for(self, key: str) -> str:
         return str(self.call_models.get(key, CALL_MODELS.get(key, "fast")))
@@ -474,6 +507,160 @@ class ResearcherAgent(BaseAgent):
             return data if isinstance(data, dict) else {}
         return {}
 
+    @staticmethod
+    def _parse_source_generated_at(prompt_text: str) -> str | None:
+        match = re.search(r"(?mi)^Generated:\s*(.+)$", prompt_text)
+        if not match:
+            return None
+        raw = str(match.group(1) or "").strip()
+        if not raw:
+            return None
+        try:
+            parsed = datetime.fromisoformat(raw.replace("Z", "+00:00"))
+            if parsed.tzinfo is None:
+                parsed = parsed.replace(tzinfo=timezone.utc)
+            return parsed.astimezone(timezone.utc).isoformat()
+        except ValueError:
+            return raw
+
+    async def refresh_ui_current_picture_once(self, reason: str = "manual") -> bool:
+        if not self.ui_current_picture_enabled:
+            return False
+
+        attempt_at = datetime.now(timezone.utc).isoformat()
+        await self.set_agent_state(self.ui_current_picture_last_attempt_state_key, attempt_at)
+
+        try:
+            import httpx
+
+            async with httpx.AsyncClient(timeout=30, follow_redirects=True) as client:
+                response = await client.get(
+                    self.ui_current_picture_source_url,
+                    headers={"User-Agent": "Mozilla/5.0"},
+                )
+                response.raise_for_status()
+                payload = response.json()
+            source_prompt = str(payload.get("prompt", "")).strip()
+            if not source_prompt:
+                raise ValueError("IranMonitor prompt payload missing 'prompt' text")
+        except Exception as exc:  # noqa: BLE001
+            await self.set_agent_state(self.ui_current_picture_last_error_state_key, str(exc))
+            await self.observe_throttled(
+                "ui_current_picture:refresh_failed",
+                "decide",
+                f"UI current picture refresh failed ({exc})",
+                throttle_seconds=600,
+            )
+            return False
+
+        prompt_hash = hashlib.sha256(source_prompt.encode("utf-8")).hexdigest()
+        existing_snapshot = self.context_store.get_latest_snapshot("ui_current_picture")
+        existing_age = self._snapshot_age_seconds("ui_current_picture")
+        previous_prompt_hash = await self.get_agent_state(self.ui_current_picture_last_prompt_hash_state_key, default="")
+        if not previous_prompt_hash and isinstance(existing_snapshot, dict):
+            existing_meta = existing_snapshot.get("meta", {})
+            if isinstance(existing_meta, dict):
+                previous_prompt_hash = str(existing_meta.get("prompt_hash") or "")
+        if (
+            existing_snapshot is not None
+            and previous_prompt_hash == prompt_hash
+            and existing_age is not None
+            and existing_age < int(self.ui_current_picture_interval_sec)
+        ):
+            await self.observe_throttled(
+                "ui_current_picture:unchanged",
+                "decide",
+                "UI current picture unchanged",
+                throttle_seconds=600,
+            )
+            await self.set_agent_state(self.ui_current_picture_last_error_state_key, "")
+            return False
+
+        truncated = False
+        if len(source_prompt) > self.ui_current_picture_prompt_char_limit:
+            source_prompt = source_prompt[: self.ui_current_picture_prompt_char_limit].rstrip() + "\n\n[TRUNCATED]"
+            truncated = True
+        llm_prompt = f"{source_prompt}\n\n{self.ui_current_picture_style_prompt}"
+
+        generated = await self.llm(
+            llm_prompt,
+            model=self.ui_current_picture_model,
+            max_tokens=self.ui_current_picture_max_tokens,
+            expect_json=False,
+            lane="background",
+            background_prompt_char_limit=max(self.ui_current_picture_prompt_char_limit + 200, 2200),
+            background_max_tokens_limit=self.ui_current_picture_max_tokens,
+        )
+        content = str(generated or "").strip()
+        if not content:
+            error_msg = "UI current picture generation returned empty output"
+            await self.set_agent_state(self.ui_current_picture_last_error_state_key, error_msg)
+            await self.observe_throttled(
+                "ui_current_picture:refresh_failed",
+                "decide",
+                f"UI current picture refresh failed ({error_msg})",
+                throttle_seconds=600,
+            )
+            return False
+
+        source_generated_at = self._parse_source_generated_at(source_prompt)
+        changed, _ = self.context_store.save_snapshot(
+            "ui_current_picture",
+            content=content,
+            source_doc_ids=[],
+            meta={
+                "source_url": self.ui_current_picture_source_url,
+                "source_generated_at": source_generated_at,
+                "model": self.ui_current_picture_model,
+                "prompt_hash": prompt_hash,
+                "refresh_reason": reason,
+                "input_truncated": truncated,
+            },
+        )
+        await self.set_agent_state(self.ui_current_picture_last_prompt_hash_state_key, prompt_hash)
+        await self.set_agent_state(self.ui_current_picture_last_success_state_key, datetime.now(timezone.utc).isoformat())
+        await self.set_agent_state(self.ui_current_picture_last_error_state_key, "")
+
+        if changed:
+            await self.observe(
+                "write",
+                "UI current picture rebuilt",
+            )
+        else:
+            await self.observe_throttled(
+                "ui_current_picture:unchanged",
+                "decide",
+                "UI current picture unchanged",
+                throttle_seconds=600,
+            )
+        return changed
+
+    async def ui_current_picture_loop(self) -> None:
+        if not self.ui_current_picture_enabled:
+            await self.observe_throttled(
+                "ui_current_picture:disabled",
+                "decide",
+                "UI current picture loop disabled by config",
+                throttle_seconds=3600,
+            )
+            while True:
+                await asyncio.sleep(max(300, int(self.ui_current_picture_interval_sec)))
+
+        await asyncio.sleep(random.uniform(2, 8))
+        while True:
+            try:
+                await self.refresh_ui_current_picture_once(reason="scheduled")
+            except Exception as exc:  # noqa: BLE001
+                logger.exception("ui current picture loop error")
+                await self.set_agent_state(self.ui_current_picture_last_error_state_key, str(exc))
+                await self.observe_throttled(
+                    "ui_current_picture:refresh_failed",
+                    "decide",
+                    f"UI current picture refresh failed ({exc})",
+                    throttle_seconds=600,
+                )
+            await asyncio.sleep(int(self.ui_current_picture_interval_sec))
+
     async def start(self) -> None:
         self.theories_path.parent.mkdir(parents=True, exist_ok=True)
         self.theories_path.touch(exist_ok=True)
@@ -546,6 +733,18 @@ class ResearcherAgent(BaseAgent):
         except Exception as exc:  # noqa: BLE001
             logger.exception("Failed theory hygiene reset")
             await self.observe("decide", f"Theory hygiene reset failed: {exc}")
+        if self.ui_current_picture_enabled:
+            try:
+                await self.refresh_ui_current_picture_once(reason="startup")
+            except Exception as exc:  # noqa: BLE001
+                logger.exception("Failed startup UI current picture refresh")
+                await self.set_agent_state(self.ui_current_picture_last_error_state_key, str(exc))
+                await self.observe_throttled(
+                    "ui_current_picture:refresh_failed",
+                    "decide",
+                    f"UI current picture refresh failed ({exc})",
+                    throttle_seconds=600,
+                )
         self.context_ready = self._has_required_context() and self._has_latest_briefing_pack()
         await self.report_state("idle")
         try:
@@ -554,6 +753,7 @@ class ResearcherAgent(BaseAgent):
                 self.main_loop(),
                 self.context_refresh_loop(),
                 self.briefing_pack_loop(),
+                self.ui_current_picture_loop(),
                 heartbeat_task,
             )
         finally:

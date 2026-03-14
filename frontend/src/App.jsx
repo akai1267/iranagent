@@ -25,7 +25,7 @@ export default function App() {
   const { posts, newIds } = usePosts()
   const { questions } = useQuestions()
   const { content, updatedAt, justUpdated } = useTheories()
-  const { snapshot, status, loading: currentPictureLoading, error: currentPictureError, stale } = useCurrentPicture()
+  const { snapshot, loading: currentPictureLoading, error: currentPictureError } = useCurrentPicture()
 
   const criticalEvent = useMemo(
     () =>
@@ -76,10 +76,8 @@ export default function App() {
             {activeTab === 'current-picture' ? (
               <CurrentPicture
                 snapshot={snapshot}
-                status={status}
                 loading={currentPictureLoading}
                 error={currentPictureError}
-                stale={stale}
               />
             ) : null}
 

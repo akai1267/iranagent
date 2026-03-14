@@ -39,6 +39,7 @@ Writer pipeline:
 - config-first researcher contract and template system
 - hidden-provenance post generation (`frame -> prose -> verifier`)
 - current-picture generation (`frame -> prose -> verifier`)
+- UI current-picture tab refresh from IranMonitor export prompt every 3 hours
 - file-backed editorial briefs instead of hardcoded example-heavy style prompting
 
 ## Context pipeline
@@ -80,6 +81,7 @@ Single-page app with tabs:
 - About
 
 Observatory stream is sequence-based and reconnect-safe (gap catch-up by `after_seq`).
+The `Current Picture` tab reads `/current-picture/latest` (IranMonitor prompt export + Groq rewrite).
 
 ## Local development
 
@@ -110,6 +112,9 @@ Researcher-specific knobs:
 - `WRITER_PIPELINE_V2=true`
 - `RESEARCHER_EDITORIAL_BRIEF_PATH=/config/editorial_brief.md`
 - `RESEARCHER_CURRENT_PICTURE_BRIEF_PATH=/config/current_picture_brief.md`
+- `UI_CURRENT_PICTURE_ENABLED=true`
+- `UI_CURRENT_PICTURE_INTERVAL_SEC=10800`
+- `UI_CURRENT_PICTURE_SOURCE_URL=https://www.iranmonitor.org/api/export-prompt`
 
 ### Run locally
 
@@ -143,7 +148,7 @@ Never commit API keys, Telegram session strings, or local DB files.
 - `/observatory/recent`
 - `/posts`
 - `/posts/{id}/evidence`
-- `/context/current-picture`
+- `/current-picture/latest`
 - `/context/structural`
 - `/context/documents`
 - `/context/status`

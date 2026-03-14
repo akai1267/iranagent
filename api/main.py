@@ -19,7 +19,13 @@ from pydantic import BaseModel
 
 from agents.researcher.briefing_pack import pack_age_seconds
 from scripts.init_db import init as init_db
-from shared.schemas import BriefingPackResponse, ContextDocumentRef, ContextSnapshotResponse, ContextStatusResponse
+from shared.schemas import (
+    BriefingPackResponse,
+    ContextDocumentRef,
+    ContextSnapshotResponse,
+    ContextStatusResponse,
+    CurrentPictureLatestResponse,
+)
 
 
 def _memory_path(filename: str) -> Path:
@@ -439,15 +445,55 @@ async def observatory_event_detail(seq: int):
 
 @app.get("/context/current-picture", response_model=ContextSnapshotResponse)
 async def context_current_picture():
-    snapshot = _load_latest_snapshot("current_picture")
+    raise HTTPException(status_code=410, detail="Deprecated endpoint. Use /current-picture/latest")
+
+
+@app.get("/current-picture/latest", response_model=CurrentPictureLatestResponse)
+async def current_picture_latest():
+    snapshot = _load_latest_snapshot("ui_current_picture")
     if not snapshot:
-        raise HTTPException(status_code=404, detail="Current picture snapshot not found")
-    sources = _load_documents_by_ids(list(snapshot.get("source_doc_ids", [])))
-    return ContextSnapshotResponse(
-        generated_at=str(snapshot.get("generated_at")),
+        raise HTTPException(status_code=404, detail="Current picture is warming up.")
+
+    generated_at = str(snapshot.get("generated_at") or "")
+    generated_dt = _to_dt(generated_at)
+    now = datetime.datetime.now(timezone.utc)
+    age_seconds = max(0, int((now - generated_dt).total_seconds())) if generated_dt else None
+    stale_after = max(300, int(os.environ.get("UI_CURRENT_PICTURE_INTERVAL_SEC", "10800") or "10800"))
+    stale = age_seconds is None or age_seconds > stale_after
+
+    meta = snapshot.get("meta", {})
+    if not isinstance(meta, dict):
+        meta = {}
+
+    conn = sqlite3.connect(_db_path())
+    state_rows = conn.execute(
+        """
+        SELECT key, value
+        FROM agent_state
+        WHERE key IN (
+            'researcher:ui_current_picture:last_attempt_at',
+            'researcher:ui_current_picture:last_error'
+        )
+        """
+    ).fetchall()
+    conn.close()
+    state = {row[0]: row[1] for row in state_rows}
+    last_error = state.get("researcher:ui_current_picture:last_error")
+    if last_error is not None and not str(last_error).strip():
+        last_error = None
+
+    return CurrentPictureLatestResponse(
+        generated_at=generated_at,
         content=str(snapshot.get("content", "")),
-        meta=dict(snapshot.get("meta", {})),
-        sources=sources,
+        source_generated_at=(
+            str(meta.get("source_generated_at")).strip() if meta.get("source_generated_at") is not None else None
+        ),
+        source_url=str(meta.get("source_url") or "") or None,
+        model=str(meta.get("model") or "") or None,
+        age_seconds=age_seconds,
+        stale=stale,
+        last_attempt_at=state.get("researcher:ui_current_picture:last_attempt_at"),
+        last_error=last_error,
     )
 
 
