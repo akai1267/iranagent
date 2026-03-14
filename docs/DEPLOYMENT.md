@@ -7,8 +7,8 @@ This project is intended to run cloud-first on Railway with persistent storage m
 Recommended model:
 
 1. Push code to GitHub
-2. Railway service connected to GitHub repo (`main` or release branch)
-3. Railway builds and deploys on push
+2. GitHub Actions deploys to Railway on push to `main`
+3. Railway runs the new deployment
 
 This avoids manual local-only deploy drift.
 
@@ -30,7 +30,7 @@ Set these in Railway service variables:
 - `REDIS_PORT`
 - `REDIS_PASSWORD` (if used)
 - `DEFAULT_MODE` (recommended `light` for free-tier safety)
-- `RAILWAY_API_TOKEN` only for CLI/API tooling actions, not app runtime
+- `RAILWAY_API_TOKEN` is required as a GitHub Actions repository secret for deploys
 
 Optional but useful strict-saver values:
 
@@ -79,9 +79,24 @@ Recommended:
 1. Work on feature branch
 2. Open PR to `main`
 3. Merge after review/checks
-4. Railway auto-deploys from `main`
+4. GitHub Actions workflow `.github/workflows/deploy-railway-backend.yml` deploys to Railway
 
 If branch protection is enabled on `main`, direct pushes are restricted by policy.
+
+## 10. GitHub Actions setup
+
+Repository secret required:
+
+- `RAILWAY_API_TOKEN`
+
+Workflow file:
+
+- `.github/workflows/deploy-railway-backend.yml`
+
+Trigger behavior:
+
+1. Push to `main` triggers deployment
+2. Manual trigger via workflow dispatch is also available
 
 ## 8. Rollback
 
