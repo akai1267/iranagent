@@ -19,7 +19,7 @@ from shared.schemas import AgentMessage
 
 logger = logging.getLogger(__name__)
 
-PIPELINE_VERSION = "current-picture-v5"
+PIPELINE_VERSION = "current-picture-v6"
 UI_CURRENT_PICTURE_STYLE_PROMPT_DEFAULT = (
     "do phd level analysis n draw insights. write in fluffy paragraphs but not formal, "
     "like how u would say to a friend"
@@ -485,27 +485,16 @@ class ResearcherAgent(BaseAgent):
         return "\n".join(lines)
 
     def _build_prose_prompt(self, frame: dict, fact_pack: FactPack, issues: list[str] | None = None) -> str:
-        task_parts = [
-            "Write the final current picture note from the frame and evidence below.",
-            "Open with the main strategic shift in sentence one.",
-            "Write only 5-8 dense paragraphs.",
-            "Do not use bullets, numbered lists, section headings, or labels like Main Shift or Core Lenses.",
-            "Do not say you are summarizing a collection of articles or a dashboard.",
-            self.ui_current_picture_style_prompt,
-        ]
-        if issues:
-            task_parts.append(
-                "Fix these issues: " + "; ".join(self._shorten(item, 90) for item in issues[:6])
+        _ = issues
+        return "\n\n".join(
+            part
+            for part in (
+                self._compact_frame_block(frame),
+                self._compact_evidence_block(fact_pack),
+                self.ui_current_picture_style_prompt,
             )
-        prompt_parts = [
-            "TASK",
-            "\n".join(task_parts),
-            "FRAME",
-            self._compact_frame_block(frame),
-            "EVIDENCE",
-            self._compact_evidence_block(fact_pack),
-        ]
-        return "\n\n".join(part for part in prompt_parts if part).strip()
+            if part
+        ).strip()
 
     def _heuristic_verifier_issues(self, content: str) -> list[str]:
         issues: list[str] = []
