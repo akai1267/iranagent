@@ -38,6 +38,7 @@ class BaseAgent:
         self.name = name
         self.redis_url = redis_url
         self.redis = None
+        self.heartbeat_redis = None
         self.global_limiter: GlobalRateLimiter | None = None
         self.groq_keys = self._load_groq_keys(groq_key)
         self.groq_clients = [groq.AsyncGroq(api_key=key) for key in self.groq_keys]
@@ -144,6 +145,8 @@ class BaseAgent:
     async def init_runtime(self) -> None:
         if self.redis is None:
             self.redis = await aioredis.from_url(self.redis_url)
+        if self.heartbeat_redis is None:
+            self.heartbeat_redis = await aioredis.from_url(self.redis_url)
         init_db(str(self.db_path))
         if self.global_limiter is None:
             self.global_limiter = GlobalRateLimiter(self.redis, self.groq_models, threshold=self.global_threshold)
@@ -198,18 +201,27 @@ class BaseAgent:
         backoff = 2.0
         while True:
             try:
-                if self.redis is None:
-                    await self.init_runtime()
-                await self.redis.set(f"heartbeat:{self.name}", "ok", ex=30)
+                if self.heartbeat_redis is None:
+                    self.heartbeat_redis = await aioredis.from_url(self.redis_url)
+                await self.heartbeat_redis.set(f"heartbeat:{self.name}", "ok", ex=30)
                 backoff = 2.0
                 await asyncio.sleep(10)
             except asyncio.CancelledError:
                 raise
             except Exception:  # noqa: BLE001
                 logger.exception("%s heartbeat transport failure", self.name)
-                await self._reset_runtime_connections()
+                await self._reset_heartbeat_connection()
                 await asyncio.sleep(backoff)
                 backoff = min(30.0, backoff * 2.0)
+
+    async def _reset_heartbeat_connection(self) -> None:
+        if self.heartbeat_redis is None:
+            return
+        try:
+            await self.heartbeat_redis.aclose()
+        except Exception:  # noqa: BLE001
+            pass
+        self.heartbeat_redis = None
 
     async def _reset_runtime_connections(self) -> None:
         if self.redis is None:
