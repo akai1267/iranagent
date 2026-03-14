@@ -24,6 +24,8 @@ The startup script no longer launches monitor/orchestrator/source-monitor proces
 4. Persist snapshot in SQLite (`/memory/posts.db`, `context_snapshots` as `ui_current_picture`)
 5. Frontend polls `GET /current-picture/latest`
 
+Generation is guarded against abrupt cutoffs by trimming incomplete trailing fragments when a response hits token limits.
+
 ## Endpoints Used by UI
 
 - `GET /current-picture/latest`
@@ -82,5 +84,5 @@ This repo is safe to keep public **only if** secrets stay out of git:
 Run a quick scan before pushing if needed:
 
 ```bash
-rg -n "gsk_|tvly-|RAILWAY_API_TOKEN|TELEGRAM_API_HASH|TELEGRAM_SESSION_STRING" .
+rg -n "gsk_|RAILWAY_API_TOKEN|BEGIN PRIVATE KEY|api[_-]?key" .
 ```

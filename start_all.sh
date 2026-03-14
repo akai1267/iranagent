@@ -2,9 +2,6 @@
 set -eu
 
 mkdir -p /memory
-[ -f /memory/source_proposals.json ] || echo '[]' > /memory/source_proposals.json
-[ -f /memory/working_theories.md ] || touch /memory/working_theories.md
-[ -f /memory/stream.md ] || touch /memory/stream.md
 
 python scripts/init_db.py >/dev/null 2>&1 || true
 

@@ -8,7 +8,6 @@ async def main() -> None:
     agent = ResearcherAgent(
         redis_url=os.environ.get("REDIS_URL", "redis://localhost:6379"),
         groq_key=os.environ.get("GROQ_API_KEY", ""),
-        tavily_key=os.environ.get("TAVILY_API_KEY", ""),
     )
     await agent.start()
 
