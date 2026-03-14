@@ -1,89 +1,39 @@
 # Iran War Monitor AI Agentic Analyst
 
-Multi-agent Iran conflict intelligence system with persistent context memory, briefing-pack runtime state, observatory tracing, and quota-aware LLM orchestration.
+This repository is now a minimal app with two tabs only:
 
-## What this is
+- `CURRENT PICTURE`
+- `ABOUT`
 
-This project runs a coordinated backend of four agents plus one API service:
+`CURRENT PICTURE` is generated from IranMonitor prompt export data and refreshed on a schedule.
 
-- `monitor`: ingests RSS, X (via Nitter RSS), and Telegram sources into a scored stream
-- `orchestrator`: triages signal priority and routes tasks/interrupts
-- `researcher`: builds layered context, updates theories, writes posts, answers queries
-- `source_monitor`: evaluates source quality and proposes source list improvements
-- `api`: serves HTTP endpoints, websocket observatory feed, and frontend assets
+## Runtime Scope
 
-The system is designed for continuous analyst workflow, not one-shot chat. It keeps durable state in SQLite and `/memory` files so browser refreshes do not reset analysis history, and it compiles a persistent briefing pack that the researcher reads as runtime truth.
+Only the components required for current-picture generation are run in production:
 
-## Architecture
+- `researcher` (for scheduled generation)
+- `api` (for serving endpoints + frontend)
 
-Core runtime and messaging:
+The startup script no longer launches monitor/orchestrator/source-monitor processes.
 
-- Redis pubsub and shared coordination for agent messaging
-- Shared global budget/rate limits for all model calls
-- Lane-aware model usage (`interactive` vs `background`)
-- Heartbeat-based health checks for each agent
+## How Current Picture Works
 
-Persistent memory:
+1. Fetch source payload from `https://www.iranmonitor.org/api/export-prompt`
+2. Append style instruction from `UI_CURRENT_PICTURE_STYLE_PROMPT`
+3. Generate output with Groq
+4. Persist snapshot in SQLite (`/memory/posts.db`, `context_snapshots` as `ui_current_picture`)
+5. Frontend polls `GET /current-picture/latest`
 
-- SQLite database at `/memory/posts.db` for:
-  - posts and FTS index
-  - internal claim provenance for posts
-  - open questions
-  - observatory events/details
-  - context documents and snapshots
-  - lightweight agent state
-- Briefing pack files under `/memory/briefing_packs` for deterministic runtime context
+## Endpoints Used by UI
 
-Writer pipeline:
+- `GET /current-picture/latest`
+- `GET /health`
 
-- config-first researcher contract and template system
-- hidden-provenance post generation (`frame -> prose -> verifier`)
-- current-picture generation (`frame -> prose -> verifier`)
-- UI current-picture tab refresh from IranMonitor export prompt every 3 hours
-- file-backed editorial briefs instead of hardcoded example-heavy style prompting
+Deprecated for this UI flow:
 
-## Context pipeline
+- `GET /context/current-picture` returns `410`
 
-The researcher builds layered context in a fixed order:
-
-1. Structural Context (durable regime/system constraints)
-2. Current Picture (latest authoritative cycle synthesis)
-3. Latest High-Signal Stream Deltas
-4. Relevant Prior Posts / Theories
-
-Primary anchors are Critical Threats / ISW Iran Update docs. Iran Monitor briefing/structural inputs are supplemental according to source policy.
-
-## Researcher behavior
-
-The researcher does not write directly from raw stream lines. It reads a persistent briefing pack assembled from:
-
-1. structural context
-2. current picture
-3. latest material stream deltas
-4. prompt-eligible prior posts and theories
-
-Post generation uses a staged pipeline:
-
-1. internal frame generation
-2. public prose generation
-3. verifier pass against evidence ledger and freshness state
-
-Public prose is paragraph-first and analyst-oriented. Provenance is stored internally through `evidence_refs` and `claim_map`, not exposed inline as visible `[E#]` tags in the writing itself.
-
-## Frontend
-
-Single-page app with tabs:
-
-- Feed
-- Theories
-- Current Picture
-- Chat (UI-pause supported)
-- About
-
-Observatory stream is sequence-based and reconnect-safe (gap catch-up by `after_seq`).
-The `Current Picture` tab reads `/current-picture/latest` (IranMonitor prompt export + Groq rewrite).
-
-## Local development
+## Local Run
 
 ### Prereqs
 
@@ -98,63 +48,39 @@ pip install -r requirements.txt
 cd frontend && npm ci
 ```
 
-### Configure env
+### Configure
 
-Create `.env` from `.env.example` and set required secrets:
+Copy `.env.example` to `.env` and set:
 
-- `GROQ_API_KEYS` (comma-separated, supports multi-key rotation)
-- `TAVILY_API_KEY` (optional but recommended for discovery fallback)
-- Telegram credentials/session values if Telegram monitoring is enabled
-- Redis connection values
+- `GROQ_API_KEY` or `GROQ_API_KEYS`
+- `REDIS_URL`
 
-Researcher-specific knobs:
-
-- `WRITER_PIPELINE_V2=true`
-- `RESEARCHER_EDITORIAL_BRIEF_PATH=/config/editorial_brief.md`
-- `RESEARCHER_CURRENT_PICTURE_BRIEF_PATH=/config/current_picture_brief.md`
-- `UI_CURRENT_PICTURE_ENABLED=true`
-- `UI_CURRENT_PICTURE_INTERVAL_SEC=10800`
-- `UI_CURRENT_PICTURE_SOURCE_URL=https://www.iranmonitor.org/api/export-prompt`
-
-### Run locally
+### Start
 
 ```bash
 ./start_all.sh
 ```
 
-App/API defaults to `http://localhost:8000`.
+App/API default: `http://localhost:8000`
 
 ## Deployment
 
-Primary deployment target is Railway.
+Railway deployment doc: [docs/DEPLOYMENT.md](docs/DEPLOYMENT.md)
 
-- Deployment guide: [`docs/DEPLOYMENT.md`](docs/DEPLOYMENT.md)
-- Required token variable for CLI/API operations: `RAILWAY_API_TOKEN` (not `RAILWAY_TOKEN`)
+Important secret for CI deploys:
 
-## Repository hygiene
+- `RAILWAY_API_TOKEN` (not `RAILWAY_TOKEN`)
 
-This repo intentionally does **not** track runtime or secret material:
+## Secrets and Public Repo Safety
+
+This repo is safe to keep public **only if** secrets stay out of git:
 
 - `.env` is ignored
 - `/memory` is ignored
-- build/dependency caches are ignored
+- API keys should live in Railway/GitHub secrets, not tracked files
 
-Never commit API keys, Telegram session strings, or local DB files.
+Run a quick scan before pushing if needed:
 
-## Health and inspection endpoints
-
-- `/health`
-- `/budget/status`
-- `/observatory/recent`
-- `/posts`
-- `/posts/{id}/evidence`
-- `/current-picture/latest`
-- `/context/structural`
-- `/context/documents`
-- `/context/status`
-- `/briefing-pack/latest`
-- `/briefing-pack/latest/markdown`
-
-## License
-
-No license file is currently defined in this repository.
+```bash
+rg -n "gsk_|tvly-|RAILWAY_API_TOKEN|TELEGRAM_API_HASH|TELEGRAM_SESSION_STRING" .
+```

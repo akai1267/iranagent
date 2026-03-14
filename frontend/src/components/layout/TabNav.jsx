@@ -1,8 +1,5 @@
 const TABS = [
-  { id: 'feed', label: 'FEED' },
-  { id: 'theories', label: 'THEORIES' },
   { id: 'current-picture', label: 'CURRENT PICTURE' },
-  { id: 'chat', label: 'CHAT' },
   { id: 'about', label: 'ABOUT' },
 ]
 

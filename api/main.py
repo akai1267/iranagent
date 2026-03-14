@@ -210,8 +210,11 @@ if FRONTEND_DIST.exists():
 @app.get("/health")
 async def health():
     redis = await aioredis.from_url(_redis_url())
+    raw = os.environ.get("ACTIVE_AGENTS", "researcher")
+    requested = [item.strip() for item in raw.split(",") if item.strip()]
+    agents_to_check = requested or ["researcher"]
     agents = {}
-    for agent in ["orchestrator", "monitor", "researcher", "source_monitor"]:
+    for agent in agents_to_check:
         heartbeat = await redis.get(f"heartbeat:{agent}")
         agents[agent] = "ok" if heartbeat else "down"
     await redis.aclose()

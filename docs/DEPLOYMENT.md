@@ -1,126 +1,58 @@
 # Deployment Guide
 
-This project is intended to run cloud-first on Railway with persistent storage mounted at `/memory`.
+This project deploys a minimal current-picture app to Railway.
 
-## 1. Deployment model
+## Services
 
-Recommended model:
+Run only:
 
-1. Push code to GitHub
-2. GitHub Actions deploys to Railway on push to `main`
-3. Railway runs the new deployment
+- `researcher`
+- `api`
 
-This avoids manual local-only deploy drift.
+`start_all.sh` already reflects this runtime scope.
 
-## 2. Required infrastructure
+## Required Infrastructure
 
-- Railway project/service
-- Redis service (or external Redis)
-- Persistent volume mounted to `/memory`
+- Railway backend service
+- Redis
+- Persistent volume mounted at `/memory`
 
-Without `/memory`, posts/context/history are lost on restart.
+## Required Environment Variables
 
-## 3. Environment variables
-
-Set these in Railway service variables:
-
-- `GROQ_API_KEYS` (comma-separated list for key rotation)
-- `TAVILY_API_KEY` (if enabled)
-- `REDIS_HOST`
-- `REDIS_PORT`
-- `REDIS_PASSWORD` (if used)
-- `DEFAULT_MODE` (recommended `light` for free-tier safety)
-- `RAILWAY_API_TOKEN` is required as a GitHub Actions repository secret for deploys
-
-Optional but useful strict-saver values:
-
-- `CONTEXT_DISCOVERY_INTERVAL_SEC=1200`
-- `CONTEXT_MAX_STALENESS_SEC=21600`
-- `BRIEF_PACK_COMPILE_TICK_SEC=60`
-- `BRIEF_PACK_MAX_AGE_SEC=5400`
-- `WRITER_PIPELINE_V2=true`
-- `RESEARCHER_EDITORIAL_BRIEF_PATH=/config/editorial_brief.md`
-- `RESEARCHER_CURRENT_PICTURE_BRIEF_PATH=/config/current_picture_brief.md`
+- `GROQ_API_KEY` or `GROQ_API_KEYS`
+- `REDIS_URL`
 - `UI_CURRENT_PICTURE_ENABLED=true`
 - `UI_CURRENT_PICTURE_INTERVAL_SEC=10800`
-- `UI_CURRENT_PICTURE_MODEL=standard`
-- `UI_CURRENT_PICTURE_MAX_TOKENS=700`
 - `UI_CURRENT_PICTURE_SOURCE_URL=https://www.iranmonitor.org/api/export-prompt`
+- `UI_CURRENT_PICTURE_STYLE_PROMPT=do phd level analysis n draw insights. write in fluffy paragraphs but not formal, like how u would say to a friend`
 
-## 4. Build and start
+Recommended free-tier safe values:
 
-Railway should use repository root.
+- `UI_CURRENT_PICTURE_MODEL=fast`
+- `UI_CURRENT_PICTURE_MAX_TOKENS=220`
+- `UI_CURRENT_PICTURE_PROMPT_CHAR_LIMIT=2000`
 
-- Build uses project Dockerfile/runtime setup
-- Start command should execute:
+For GitHub Actions deploy:
 
-```bash
-./start_all.sh
-```
+- repo secret `RAILWAY_API_TOKEN`
 
-`start_all.sh` launches agents + API in one service process group.
+## Deploy Flow
 
-## 5. One-time database init
+1. Push to `main`
+2. GitHub Actions workflow deploys backend to Railway
+3. Wait for Railway deployment status `SUCCESS`
 
-`start_all.sh` already runs:
+## Post-Deploy Verification
 
-```bash
-python scripts/init_db.py
-```
+1. `GET /health` returns `200` and `researcher: ok`
+2. `GET /current-picture/latest` returns:
+   - `404` warmup on first boot until first generation, then
+   - `200` with `generated_at`, `content`, `stale`
+3. `GET /context/current-picture` returns `410` (deprecated route)
+4. Frontend shows only `CURRENT PICTURE` and `ABOUT` tabs
 
-No separate migration job is required for current schema path.
+## Security Notes
 
-## 6. Post-deploy verification
-
-Run these checks after each deploy:
-
-1. `GET /health` returns all agents `ok`
-2. `GET /current-picture/latest` returns tab payload (or 404 warming up on first boot)
-3. `GET /context/status` returns valid snapshot/provider state
-4. `GET /briefing-pack/latest` returns current pack
-5. `GET /posts` returns items with additive provenance fields (`claim_map`, `evidence_refs`)
-6. `GET /observatory/recent` returns sequenced events
-7. Frontend loads and tabs render correctly
-8. `GET /posts/{id}/evidence` returns internal provenance for a recent post
-
-## 7. Branch and release workflow
-
-Recommended:
-
-1. Work on feature branch
-2. Open PR to `main`
-3. Merge after review/checks
-4. GitHub Actions workflow `.github/workflows/deploy-railway-backend.yml` deploys to Railway
-
-If branch protection is enabled on `main`, direct pushes are restricted by policy.
-
-## 10. GitHub Actions setup
-
-Repository secret required:
-
-- `RAILWAY_API_TOKEN`
-
-Workflow file:
-
-- `.github/workflows/deploy-railway-backend.yml`
-
-Trigger behavior:
-
-1. Push to `main` triggers deployment
-2. Manual trigger via workflow dispatch is also available
-
-## 8. Rollback
-
-If deploy regresses:
-
-1. Roll back Railway service to previous successful deployment
-2. Re-check `/health` and `/context/status`
-3. Inspect observatory stream for errors
-
-Data on `/memory` remains if the same persistent volume is retained.
-
-## 9. Security notes
-
-- Never commit `.env`, `/memory`, or API keys
-- Rotate Groq/Tavily/Telegram credentials if exposed
-- Keep repository secret scanning enabled
+- Never commit `.env`, `/memory`, keys, or tokens
+- Rotate keys immediately if exposed
+- Keep GitHub secret scanning enabled
