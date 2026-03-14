@@ -6,6 +6,7 @@ import os
 import random
 import re
 import sqlite3
+from contextlib import suppress
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Any
@@ -460,6 +461,7 @@ class ResearcherAgent(BaseAgent):
         self.briefing_pack_root.mkdir(parents=True, exist_ok=True)
 
         await self.init_runtime()
+        heartbeat_task = asyncio.create_task(self.heartbeat_loop())
         if self.contract_fallback or self.templates_fallback:
             await self.observe_throttled(
                 "contract:invalid",
@@ -518,13 +520,18 @@ class ResearcherAgent(BaseAgent):
             await self.observe("decide", f"Theory hygiene reset failed: {exc}")
         self.context_ready = self._has_required_context() and self._has_latest_briefing_pack()
         await self.report_state("idle")
-        await asyncio.gather(
-            self.consume_loop(),
-            self.heartbeat_loop(),
-            self.main_loop(),
-            self.context_refresh_loop(),
-            self.briefing_pack_loop(),
-        )
+        try:
+            await asyncio.gather(
+                self.consume_loop(),
+                self.main_loop(),
+                self.context_refresh_loop(),
+                self.briefing_pack_loop(),
+                heartbeat_task,
+            )
+        finally:
+            heartbeat_task.cancel()
+            with suppress(asyncio.CancelledError):
+                await heartbeat_task
 
     async def report_state(self, state: str, focus: str | None = None) -> None:
         self.state = state
