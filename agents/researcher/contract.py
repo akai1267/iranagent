@@ -113,6 +113,16 @@ class CurrentPicturePolicy:
 
 
 @dataclass
+class RuntimeGatePolicy:
+    hard_cut_stale_mode: bool = True
+    critical_high_behavior: str = "triage_only"
+    medium_stale_handling: str = "drop_count"
+    stream_skip_when_gate_closed: bool = True
+    stream_defer_cooldown_sec: int = 600
+    skip_background_deep_dive_when_gate_closed: bool = True
+
+
+@dataclass
 class PublishPolicy:
     require_authoritative_fresh: bool = True
     authoritative_anchor_max_age_hours: float = 12.0
@@ -164,6 +174,7 @@ class ResearcherContract:
     prior_context_policy: PriorContextPolicy = field(default_factory=PriorContextPolicy)
     title_policy: TitlePolicy = field(default_factory=TitlePolicy)
     current_picture_policy: CurrentPicturePolicy = field(default_factory=CurrentPicturePolicy)
+    runtime_gate_policy: RuntimeGatePolicy = field(default_factory=RuntimeGatePolicy)
     publish_policy: PublishPolicy = field(default_factory=PublishPolicy)
     theory_policy: TheoryPolicy = field(default_factory=TheoryPolicy)
     query_policy: QueryPolicy = field(default_factory=QueryPolicy)
@@ -220,6 +231,11 @@ class ResearcherContract:
         current_picture_policy = (
             payload.get("current_picture_policy", {})
             if isinstance(payload.get("current_picture_policy", {}), dict)
+            else {}
+        )
+        runtime_gate_policy = (
+            payload.get("runtime_gate_policy", {})
+            if isinstance(payload.get("runtime_gate_policy", {}), dict)
             else {}
         )
 
@@ -284,6 +300,18 @@ class ResearcherContract:
                 allow_markdown_headings=cls._bool(current_picture_policy.get("allow_markdown_headings"), False),
                 analyst_specificity_required=cls._bool(
                     current_picture_policy.get("analyst_specificity_required"), True
+                ),
+            ),
+            runtime_gate_policy=RuntimeGatePolicy(
+                hard_cut_stale_mode=cls._bool(runtime_gate_policy.get("hard_cut_stale_mode"), True),
+                critical_high_behavior=str(runtime_gate_policy.get("critical_high_behavior", "triage_only")),
+                medium_stale_handling=str(runtime_gate_policy.get("medium_stale_handling", "drop_count")),
+                stream_skip_when_gate_closed=cls._bool(runtime_gate_policy.get("stream_skip_when_gate_closed"), True),
+                stream_defer_cooldown_sec=cls._int(
+                    runtime_gate_policy.get("stream_defer_cooldown_sec"), 600, minimum=30
+                ),
+                skip_background_deep_dive_when_gate_closed=cls._bool(
+                    runtime_gate_policy.get("skip_background_deep_dive_when_gate_closed"), True
                 ),
             ),
             publish_policy=PublishPolicy(

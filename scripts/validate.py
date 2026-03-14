@@ -781,6 +781,8 @@ def context_status_endpoint_live() -> CheckResult:
         "primary_anchor_published_at",
         "authoritative_fresh",
         "stale_mode_active",
+        "publish_mode",
+        "stale_note_available",
         "provider_status",
     }
     if not required.issubset(set(payload.keys())):
@@ -828,6 +830,7 @@ def researcher_contract_files_valid() -> CheckResult:
         "prior_context_policy",
         "title_policy",
         "current_picture_policy",
+        "runtime_gate_policy",
         "publish_policy",
         "theory_policy",
         "query_policy",
@@ -879,6 +882,35 @@ def briefing_pack_pipeline_wired() -> CheckResult:
     if missing:
         return CheckResult(False, f"Researcher briefing-pack wiring missing tokens: {missing}", critical=True)
     return CheckResult(True, "Researcher briefing-pack pipeline wiring is present")
+
+
+def stale_gate_wiring_present() -> CheckResult:
+    researcher = read_file(ROOT / "agents" / "researcher" / "agent.py")
+    required_tokens = [
+        "_current_publish_gate",
+        "pre_gate_blocked_stale_context",
+        "interrupt_triage_only: stale gate closed",
+        "stream_assessment_skipped: stale gate closed",
+        "stream_deferred_cooldown_active",
+    ]
+    missing = [token for token in required_tokens if token not in researcher]
+    if missing:
+        return CheckResult(False, f"Researcher stale-gate wiring missing tokens: {missing}", critical=True)
+    return CheckResult(True, "Researcher stale-gate wiring tokens are present")
+
+
+def orchestrator_medium_suppression_wired() -> CheckResult:
+    orchestrator = read_file(ROOT / "agents" / "orchestrator" / "agent.py")
+    required_tokens = [
+        "researcher_publish_gate",
+        "suppressed_medium_signal: stale gate closed",
+        "suppressed_medium_state_key",
+        "publish_mode",
+    ]
+    missing = [token for token in required_tokens if token not in orchestrator]
+    if missing:
+        return CheckResult(False, f"Orchestrator stale-medium suppression wiring missing: {missing}", critical=True)
+    return CheckResult(True, "Orchestrator stale-medium suppression wiring is present")
 
 
 def briefing_pack_api_routes_present() -> CheckResult:
@@ -1078,6 +1110,8 @@ CHECKS: dict[str, list[tuple[str, Callable[[], CheckResult]]]] = {
         ("context_modules_exist", context_modules_exist),
         ("researcher_contract_files_valid", researcher_contract_files_valid),
         ("briefing_pack_pipeline_wired", briefing_pack_pipeline_wired),
+        ("stale_gate_wiring_present", stale_gate_wiring_present),
+        ("orchestrator_medium_suppression_wired", orchestrator_medium_suppression_wired),
         ("researcher_context_pipeline_wired", researcher_context_pipeline_wired),
         ("context_api_routes_present", context_api_routes_present),
         ("context_status_endpoint_live", context_status_endpoint_live),

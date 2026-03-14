@@ -77,6 +77,8 @@ class ContextStatusResponse(BaseModel):
     primary_anchor_published_at: Optional[str] = None
     authoritative_fresh: bool = False
     stale_mode_active: bool = True
+    publish_mode: Optional[str] = None
+    stale_note_available: Optional[bool] = None
     briefing_pack_cycle_id: Optional[str] = None
     briefing_pack_generated_at: Optional[str] = None
     briefing_pack_age_seconds: Optional[int] = None

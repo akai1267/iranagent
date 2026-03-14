@@ -6,6 +6,7 @@ import os
 import random
 import re
 import sqlite3
+import time
 from contextlib import suppress
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
@@ -160,9 +161,14 @@ class ResearcherAgent(BaseAgent):
         self.stream_last_analysis_state_key = "stream_last_analysis_at"
         self.post_idle_last_forced_state_key = "post_idle_last_forced_at"
         self.theories_last_updated_state_key = "theories_last_updated_at"
+        self.stream_defer_until_state_key = "stream_defer_until"
         self.last_stream_fingerprint = ""
         self.last_stream_line_offset = 0
         self.last_stream_analysis_at: datetime | None = None
+        self.stream_defer_until: datetime | None = None
+        self.publish_gate_cache_ttl_sec = 12.0
+        self._publish_gate_cache: dict[str, Any] | None = None
+        self._publish_gate_cached_at_monotonic = 0.0
         self.context_sources_path = (
             Path("/config/context_sources.yaml")
             if Path("/config/context_sources.yaml").exists()
@@ -263,6 +269,11 @@ class ResearcherAgent(BaseAgent):
             self.contract.publish_policy.stale_status_cooldown_sec,
             minimum=3600,
         )
+        self.stream_defer_cooldown_sec = self._env_int(
+            "RESEARCHER_STREAM_DEFER_COOLDOWN_SEC",
+            self.contract.runtime_gate_policy.stream_defer_cooldown_sec,
+            minimum=30,
+        )
         self.stale_status_last_published_state_key = self.brief_pack_state_stale_status_at_key
         self.theory_hygiene_reset_state_key = "theories:hygiene_reset_v1"
         self.context_store = ContextMemoryStore(str(self.db_path))
@@ -359,11 +370,21 @@ class ResearcherAgent(BaseAgent):
             self.contract.publish_policy.stale_status_cooldown_sec,
             minimum=3600,
         )
+        self.stream_defer_cooldown_sec = self._env_int(
+            "RESEARCHER_STREAM_DEFER_COOLDOWN_SEC",
+            self.contract.runtime_gate_policy.stream_defer_cooldown_sec,
+            minimum=30,
+        )
         default_writer_pipeline_v2 = "true" if self.contract.writing_policy.writer_pipeline_v2 else "false"
         self.writer_pipeline_v2 = (
             os.environ.get("WRITER_PIPELINE_V2", default_writer_pipeline_v2).strip().lower() == "true"
         )
         self.briefing_pack.retention_count = self.pack_retention_count
+        self._invalidate_publish_gate_cache()
+
+    def _invalidate_publish_gate_cache(self) -> None:
+        self._publish_gate_cache = None
+        self._publish_gate_cached_at_monotonic = 0.0
 
     async def _reload_contract_and_templates(self) -> None:
         previous_hash = self.contract_hash
@@ -496,6 +517,13 @@ class ResearcherAgent(BaseAgent):
                 self.last_stream_analysis_at = parsed if parsed.tzinfo else parsed.replace(tzinfo=timezone.utc)
             except ValueError:
                 self.last_stream_analysis_at = None
+        stream_defer_raw = await self.get_agent_state(self.stream_defer_until_state_key)
+        if stream_defer_raw:
+            try:
+                parsed = datetime.fromisoformat(stream_defer_raw)
+                self.stream_defer_until = parsed if parsed.tzinfo else parsed.replace(tzinfo=timezone.utc)
+            except ValueError:
+                self.stream_defer_until = None
 
         self.db = sqlite3.connect(str(self.db_path), check_same_thread=False)
         try:
@@ -535,7 +563,13 @@ class ResearcherAgent(BaseAgent):
 
     async def report_state(self, state: str, focus: str | None = None) -> None:
         self.state = state
-        await self.publish("orchestrator", "status", {"state": state, "focus": focus})
+        payload = {
+            "state": state,
+            "focus": focus,
+            "publish_gate": await self._current_publish_gate(),
+            "status_at": datetime.now(timezone.utc).isoformat(),
+        }
+        await self.publish("orchestrator", "status", payload)
 
     def _has_required_context(self) -> bool:
         structural = self.context_store.get_latest_snapshot("structural_context")
@@ -1053,6 +1087,53 @@ class ResearcherAgent(BaseAgent):
             "stale_mode_active": not authoritative_fresh,
         }
 
+    async def _current_publish_gate(self, force_refresh: bool = False) -> dict[str, Any]:
+        now_mono = time.monotonic()
+        if not force_refresh and self._publish_gate_cache is not None:
+            if (now_mono - self._publish_gate_cached_at_monotonic) <= float(self.publish_gate_cache_ttl_sec):
+                return dict(self._publish_gate_cache)
+
+        pack = self._latest_briefing_pack() or {}
+        freshness = pack.get("freshness", {}) if isinstance(pack.get("freshness"), dict) else {}
+        authoritative_fresh = bool(freshness.get("authoritative_fresh"))
+        stale_mode_active = bool(freshness.get("stale_mode_active", not authoritative_fresh))
+        allow_stale_note = bool(self.contract.publish_policy.allow_stale_status_note)
+        stale_note_available = False
+        if stale_mode_active and allow_stale_note:
+            stale_note_available = await self._can_publish_stale_status_note()
+        normal_publish_allowed = not stale_mode_active
+        publish_mode = "normal" if normal_publish_allowed else ("stale_note_only" if stale_note_available else "blocked")
+
+        hard_cut = bool(self.contract.runtime_gate_policy.hard_cut_stale_mode)
+        medium_drop = str(self.contract.runtime_gate_policy.medium_stale_handling).strip().lower() == "drop_count"
+        accept_medium_signals = not (hard_cut and publish_mode == "blocked" and medium_drop)
+        accept_high_signals = True
+        accept_critical_signals = True
+
+        if publish_mode == "normal":
+            action_hint = "publish_or_triage"
+        elif publish_mode == "stale_note_only":
+            action_hint = "publish_or_triage"
+        elif accept_high_signals or accept_critical_signals:
+            action_hint = "triage_only"
+        else:
+            action_hint = "drop"
+
+        gate = {
+            "authoritative_fresh": authoritative_fresh,
+            "stale_mode_active": stale_mode_active,
+            "stale_note_available": stale_note_available,
+            "normal_publish_allowed": normal_publish_allowed,
+            "publish_mode": publish_mode,
+            "accept_medium_signals": accept_medium_signals,
+            "accept_high_signals": accept_high_signals,
+            "accept_critical_signals": accept_critical_signals,
+            "action_hint": action_hint,
+        }
+        self._publish_gate_cache = dict(gate)
+        self._publish_gate_cached_at_monotonic = now_mono
+        return gate
+
     async def _can_publish_stale_status_note(self) -> bool:
         last_raw = await self.get_agent_state(self.stale_status_last_published_state_key)
         last_dt = self._to_dt(last_raw)
@@ -1063,6 +1144,7 @@ class ResearcherAgent(BaseAgent):
 
     async def _mark_stale_status_published(self) -> None:
         await self.set_agent_state(self.stale_status_last_published_state_key, datetime.now(timezone.utc).isoformat())
+        self._invalidate_publish_gate_cache()
 
     def _post_contains_banned_phrase(self, content: str) -> bool:
         lower = str(content or "").lower()
@@ -1540,6 +1622,7 @@ class ResearcherAgent(BaseAgent):
         }
         markdown = pack_to_markdown(pack)
         self.briefing_pack.write_pack(pack, markdown)
+        self._invalidate_publish_gate_cache()
         await self.set_agent_state(self.brief_pack_state_cycle_key, cycle_id)
         await self.set_agent_state(self.brief_pack_state_generated_at_key, str(pack["generated_at"]))
         await self.set_agent_state(self.brief_pack_state_input_hash_key, input_hash)
@@ -2270,7 +2353,12 @@ Rules:
                     await self.prioritize_questions()
                     await self.maybe_force_idle_post()
                     questions = self.get_open_questions()
-                    if questions and self.mode == "full":
+                    allow_bg_deep_dive = True
+                    if bool(self.contract.runtime_gate_policy.skip_background_deep_dive_when_gate_closed):
+                        gate = await self._current_publish_gate()
+                        if str(gate.get("publish_mode", "")) == "blocked":
+                            allow_bg_deep_dive = False
+                    if questions and self.mode == "full" and allow_bg_deep_dive:
                         top = questions[0]
                         await self.deep_dive(top["question"], top["id"])
             except Exception as exc:  # noqa: BLE001
@@ -2293,6 +2381,39 @@ Rules:
         upper = line.upper()
         return any(level in upper for level in ("[MEDIUM]", "[HIGH]", "[CRITICAL]"))
 
+    async def _persist_stream_cursor(self, offset: int, fingerprint: str) -> None:
+        self.last_stream_line_offset = max(0, int(offset))
+        self.last_stream_fingerprint = str(fingerprint)
+        await self.set_agent_state(self.stream_offset_state_key, str(self.last_stream_line_offset))
+        await self.set_agent_state(self.stream_fingerprint_state_key, self.last_stream_fingerprint)
+
+    async def _apply_stream_defer(self) -> None:
+        self.stream_defer_until = datetime.now(timezone.utc) + timedelta(seconds=self.stream_defer_cooldown_sec)
+        await self.set_agent_state(self.stream_defer_until_state_key, self.stream_defer_until.isoformat())
+
+    async def _clear_stream_defer(self) -> None:
+        self.stream_defer_until = None
+        await self.set_agent_state(self.stream_defer_until_state_key, "")
+
+    async def _triage_interrupt_stale(self, payload: dict, significance: str, gate: dict[str, Any]) -> None:
+        headline = str(payload.get("headline", "")).strip()
+        if headline:
+            self.add_question(f"Reassess stale-anchor impact: {headline[:180]}")
+        note = {
+            "at": datetime.now(timezone.utc).isoformat(),
+            "significance": str(significance).lower(),
+            "headline": headline[:220],
+            "source": str(payload.get("source", ""))[:80],
+            "publish_mode": str(gate.get("publish_mode", "")),
+        }
+        await self.set_agent_state("last_triage_interrupt", json.dumps(note, ensure_ascii=False))
+        await self.observe_throttled(
+            "interrupt_triage_only",
+            "decide",
+            "interrupt_triage_only: stale gate closed",
+            throttle_seconds=self.contract.observability.blocked_throttle_sec,
+        )
+
     async def check_stream(self) -> None:
         all_lines = self._stream_all()
         if not all_lines:
@@ -2308,10 +2429,7 @@ Rules:
         recent = all_lines[-30:]
         fingerprint = "\n".join(recent)
         if not any(self._line_is_material_signal(line) for line in new_lines):
-            self.last_stream_line_offset = len(all_lines)
-            self.last_stream_fingerprint = fingerprint
-            await self.set_agent_state(self.stream_offset_state_key, str(self.last_stream_line_offset))
-            await self.set_agent_state(self.stream_fingerprint_state_key, self.last_stream_fingerprint)
+            await self._persist_stream_cursor(len(all_lines), fingerprint)
             return
 
         if self.last_stream_analysis_at is not None:
@@ -2320,8 +2438,34 @@ Rules:
                 return
 
         if fingerprint == self.last_stream_fingerprint:
-            self.last_stream_line_offset = len(all_lines)
-            await self.set_agent_state(self.stream_offset_state_key, str(self.last_stream_line_offset))
+            await self._persist_stream_cursor(len(all_lines), fingerprint)
+            return
+
+        if self.stream_defer_until is not None and datetime.now(timezone.utc) < self.stream_defer_until:
+            await self._persist_stream_cursor(len(all_lines), fingerprint)
+            await self.observe_throttled(
+                "stream_deferred_cooldown_active",
+                "decide",
+                "stream_deferred_cooldown_active",
+                throttle_seconds=min(300, self.stream_defer_cooldown_sec),
+            )
+            return
+        if self.stream_defer_until is not None and datetime.now(timezone.utc) >= self.stream_defer_until:
+            await self._clear_stream_defer()
+
+        gate = await self._current_publish_gate()
+        if (
+            bool(self.contract.runtime_gate_policy.hard_cut_stale_mode)
+            and bool(self.contract.runtime_gate_policy.stream_skip_when_gate_closed)
+            and str(gate.get("publish_mode", "")) == "blocked"
+        ):
+            await self._persist_stream_cursor(len(all_lines), fingerprint)
+            await self.observe_throttled(
+                "stream_assessment_skipped",
+                "decide",
+                "stream_assessment_skipped: stale gate closed",
+                throttle_seconds=self.contract.observability.blocked_throttle_sec,
+            )
             return
 
         if not self._has_required_context():
@@ -2363,14 +2507,25 @@ Rules:
         )
 
         if not isinstance(result, dict) or "changes_picture" not in result:
+            await self._apply_stream_defer()
+            self.last_stream_analysis_at = datetime.now(timezone.utc)
+            await self._persist_stream_cursor(len(all_lines), fingerprint)
+            await self.set_agent_state(self.stream_last_analysis_state_key, self.last_stream_analysis_at.isoformat())
             await self.observe_throttled(
                 "stream:analysis:deferred",
                 "decide",
-                "Stream assessment deferred; retaining backlog for retry",
+                "Stream assessment deferred; cursor advanced and cooldown applied",
                 throttle_seconds=300,
+            )
+            await self.observe_throttled(
+                "stream_deferred_cooldown_active",
+                "decide",
+                "stream_deferred_cooldown_active",
+                throttle_seconds=min(300, self.stream_defer_cooldown_sec),
             )
             return
 
+        await self._clear_stream_defer()
         new_question = result.get("new_question")
         if new_question:
             self.add_question(str(new_question))
@@ -2387,11 +2542,8 @@ Rules:
                 lane="background",
             )
 
-        self.last_stream_fingerprint = fingerprint
-        self.last_stream_line_offset = len(all_lines)
         self.last_stream_analysis_at = datetime.now(timezone.utc)
-        await self.set_agent_state(self.stream_offset_state_key, str(self.last_stream_line_offset))
-        await self.set_agent_state(self.stream_fingerprint_state_key, self.last_stream_fingerprint)
+        await self._persist_stream_cursor(len(all_lines), fingerprint)
         await self.set_agent_state(self.stream_last_analysis_state_key, self.last_stream_analysis_at.isoformat())
 
     async def prioritize_questions(self) -> None:
@@ -2555,7 +2707,18 @@ Rules:
             detail=json.dumps(payload, ensure_ascii=False),
             significance=significance,
         )
-        lane = "interactive" if str(significance).lower() in {"critical", "high"} else "background"
+        level = str(significance).lower()
+        lane = "interactive" if level in {"critical", "high"} else "background"
+        gate = await self._current_publish_gate()
+        if (
+            bool(self.contract.runtime_gate_policy.hard_cut_stale_mode)
+            and str(gate.get("publish_mode", "")) == "blocked"
+            and level in {"critical", "high"}
+            and str(self.contract.runtime_gate_policy.critical_high_behavior).strip().lower() == "triage_only"
+        ):
+            await self._triage_interrupt_stale(payload, significance, gate)
+            await self.report_state("idle")
+            return
         await self.consider_post(payload, lane=lane)
         await self.report_state("idle")
 
@@ -2566,6 +2729,27 @@ Rules:
                 "decide",
                 "Background post evaluation skipped: context snapshots missing",
                 throttle_seconds=300,
+            )
+            return False
+
+        if self.contract.publish_policy.block_low_confidence_stream_only and self._is_low_confidence_stream_only(context):
+            await self.observe_throttled(
+                "blocked_low_signal",
+                "decide",
+                "blocked_low_signal: stream-only low-confidence trigger blocked by contract",
+                throttle_seconds=self.contract.observability.blocked_throttle_sec,
+            )
+            return False
+
+        gate = await self._current_publish_gate()
+        publish_mode = str(gate.get("publish_mode", "")).strip().lower()
+        can_stale_note = bool(gate.get("stale_note_available"))
+        if bool(self.contract.runtime_gate_policy.hard_cut_stale_mode) and publish_mode == "blocked":
+            await self.observe_throttled(
+                "pre_gate_blocked_stale_context",
+                "decide",
+                "pre_gate_blocked_stale_context",
+                throttle_seconds=self.contract.observability.blocked_throttle_sec,
             )
             return False
 
@@ -2602,17 +2786,6 @@ Rules:
         freshness_meta = dict(context_bundle.get("freshness_meta", {}) or {})
         authoritative_fresh = bool(freshness_meta.get("authoritative_fresh"))
         stale_mode_active = bool(freshness_meta.get("stale_mode_active"))
-        allow_stale_note = bool(self.contract.publish_policy.allow_stale_status_note)
-        can_stale_note = await self._can_publish_stale_status_note() if stale_mode_active and allow_stale_note else False
-
-        if self.contract.publish_policy.block_low_confidence_stream_only and self._is_low_confidence_stream_only(context):
-            await self.observe_throttled(
-                "blocked_low_signal",
-                "decide",
-                "blocked_low_signal: stream-only low-confidence trigger blocked by contract",
-                throttle_seconds=self.contract.observability.blocked_throttle_sec,
-            )
-            return False
 
         if stale_mode_active and self.contract.publish_policy.require_authoritative_fresh and not can_stale_note:
             await self.observe_throttled(

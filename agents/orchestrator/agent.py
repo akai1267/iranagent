@@ -2,6 +2,7 @@ import asyncio
 import os
 from datetime import datetime, timezone
 from pathlib import Path
+import json
 
 import yaml
 
@@ -16,6 +17,7 @@ class OrchestratorAgent(BaseAgent):
 
         self.researcher_state = "idle"
         self.researcher_focus = None
+        self.researcher_publish_gate: dict = {}
         self.queue: asyncio.PriorityQueue[tuple[int, int, dict]] = asyncio.PriorityQueue()
         self._queue_seq = 0
         default_mode = os.environ.get("DEFAULT_MODE", "full").strip().lower()
@@ -24,6 +26,9 @@ class OrchestratorAgent(BaseAgent):
         self.mode_observe_interval_sec = 600
         self.mode_state_key = "mode_last_observed"
         self.mode_state_ts_key = "mode_last_observed_at"
+        self.suppressed_medium_state_key = "suppressed_medium_signals"
+        self.suppressed_medium_last_state_key = "suppressed_medium_last_at"
+        self.suppress_observe_throttle_sec = self._env_int("ORCH_SUPPRESS_OBSERVE_THROTTLE_SEC", 300, minimum=30)
 
         resources = yaml.safe_load(Path(resources_path).read_text(encoding="utf-8"))
         raw_thresholds = resources.get("mode_thresholds", {"light_mode": 0.8, "minimal_mode": 0.95})
@@ -93,8 +98,12 @@ class OrchestratorAgent(BaseAgent):
             return
 
         if message.type == "status":
+            if message.from_agent != "researcher":
+                return
             self.researcher_state = message.payload.get("state", "idle")
             self.researcher_focus = message.payload.get("focus")
+            gate = message.payload.get("publish_gate")
+            self.researcher_publish_gate = gate if isinstance(gate, dict) else {}
             return
 
         if message.type == "token_usage":
@@ -113,9 +122,30 @@ class OrchestratorAgent(BaseAgent):
             await self.observe("decide", "Forwarded source reload request to monitor")
             return
 
+    async def _record_suppressed_medium_signal(self, headline: str) -> None:
+        raw = await self.get_agent_state(self.suppressed_medium_state_key, default="0")
+        try:
+            count = int(raw or 0)
+        except ValueError:
+            count = 0
+        count += 1
+        now_iso = datetime.now(timezone.utc).isoformat()
+        await self.set_agent_state(self.suppressed_medium_state_key, str(count))
+        await self.set_agent_state(self.suppressed_medium_last_state_key, now_iso)
+        detail = json.dumps({"count": count, "headline": headline[:160]}, ensure_ascii=False)
+        await self.observe_throttled(
+            "suppressed_medium_signal",
+            "decide",
+            "suppressed_medium_signal: stale gate closed",
+            detail=detail,
+            throttle_seconds=self.suppress_observe_throttle_sec,
+        )
+
     async def route_signal(self, message: AgentMessage) -> None:
         signal = Signal(**message.payload)
         mode = self.current_mode()
+        publish_mode = str(self.researcher_publish_gate.get("publish_mode", "")).strip().lower()
+        hard_blocked = publish_mode == "blocked"
 
         await self.observe(
             "decide",
@@ -142,6 +172,10 @@ class OrchestratorAgent(BaseAgent):
             await self.observe("decide", "LOW significance - noted only, no interrupt")
             return
 
+        if hard_blocked and signal.significance == "medium":
+            await self._record_suppressed_medium_signal(signal.headline)
+            return
+
         priority = {"critical": 0, "high": 1, "medium": 2}.get(signal.significance, 3)
         self._queue_seq += 1
         await self.queue.put((priority, self._queue_seq, signal.model_dump(mode="json")))
@@ -151,6 +185,12 @@ class OrchestratorAgent(BaseAgent):
         while True:
             if self.researcher_state == "idle" and not self.queue.empty():
                 _, _, payload = await self.queue.get()
+                publish_mode = str(self.researcher_publish_gate.get("publish_mode", "")).strip().lower()
+                significance = str(payload.get("significance", "medium")).strip().lower()
+                if publish_mode == "blocked" and significance == "medium":
+                    await self._record_suppressed_medium_signal(str(payload.get("headline", "")))
+                    await asyncio.sleep(0)
+                    continue
                 await self.publish("researcher", "interrupt", payload, significance=payload.get("significance", "medium"))
                 await self.observe("decide", "Queued signal routed to researcher")
             await asyncio.sleep(5)

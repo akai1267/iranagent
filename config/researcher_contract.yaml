@@ -50,6 +50,14 @@ current_picture_policy:
   allow_markdown_headings: false
   analyst_specificity_required: true
 
+runtime_gate_policy:
+  hard_cut_stale_mode: true
+  critical_high_behavior: triage_only
+  medium_stale_handling: drop_count
+  stream_skip_when_gate_closed: true
+  stream_defer_cooldown_sec: 600
+  skip_background_deep_dive_when_gate_closed: true
+
 publish_policy:
   require_authoritative_fresh: true
   authoritative_anchor_max_age_hours: 12

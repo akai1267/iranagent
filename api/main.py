@@ -544,6 +544,7 @@ async def context_status():
     structural_refresh = max(3600, int(os.environ.get("CONTEXT_STRUCTURAL_REFRESH_SEC", "86400")))
     anchor_freshness_hours = float(os.environ.get("AUTHORITATIVE_ANCHOR_MAX_AGE_HOURS", "12") or "12")
     anchor_freshness_sec = max(3600, int(anchor_freshness_hours * 3600))
+    stale_note_cooldown_sec = max(60, int(os.environ.get("STALE_STATUS_NOTE_COOLDOWN_SEC", "86400")))
     now = datetime.datetime.now(timezone.utc)
 
     conn = sqlite3.connect(_db_path())
@@ -553,7 +554,8 @@ async def context_status():
         FROM agent_state
         WHERE key IN (
             'researcher:context:last_successful_refresh_at',
-            'researcher:context:last_current_picture_generated_at'
+            'researcher:context:last_current_picture_generated_at',
+            'researcher:brief_pack:last_stale_status_at'
         )
         """
     ).fetchall()
@@ -643,6 +645,16 @@ async def context_status():
         and anchor_age <= anchor_freshness_sec
         and provider_map.get("critical_threats") == "ok"
     )
+    stale_note_available = False
+    if not authoritative_fresh:
+        last_stale_raw = state.get("researcher:brief_pack:last_stale_status_at")
+        last_stale = _to_dt(last_stale_raw)
+        if last_stale is None:
+            stale_note_available = True
+        else:
+            stale_note_available = max(0, int((now - last_stale).total_seconds())) >= stale_note_cooldown_sec
+    publish_mode = "normal" if authoritative_fresh else ("stale_note_only" if stale_note_available else "blocked")
+
     latest_pack = _load_briefing_pack_latest()
     briefing_pack_cycle_id = None
     briefing_pack_generated_at = None
@@ -661,6 +673,8 @@ async def context_status():
         primary_anchor_published_at=primary_published,
         authoritative_fresh=authoritative_fresh,
         stale_mode_active=not authoritative_fresh,
+        publish_mode=publish_mode,
+        stale_note_available=stale_note_available,
         briefing_pack_cycle_id=briefing_pack_cycle_id,
         briefing_pack_generated_at=briefing_pack_generated_at,
         briefing_pack_age_seconds=briefing_pack_age,
