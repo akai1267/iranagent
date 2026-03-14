@@ -2,7 +2,7 @@ from datetime import datetime, timezone
 from typing import Any, Optional
 from uuid import UUID, uuid4
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, ConfigDict, Field
 
 
 class AgentMessage(BaseModel):
@@ -29,6 +29,8 @@ class ObservabilityEvent(BaseModel):
 
 
 class CurrentPictureLatestResponse(BaseModel):
+    model_config = ConfigDict(protected_namespaces=())
+
     generated_at: str
     content: str
     source_generated_at: Optional[str] = None

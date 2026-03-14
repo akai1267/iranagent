@@ -297,6 +297,38 @@ class ResearcherAgent(BaseAgent):
             f"{self._render_fact_pack_for_frame(fact_pack)}"
         )
 
+    def _fallback_lenses_from_fact_pack(self, fact_pack: FactPack) -> list[dict[str, object]]:
+        templates = {
+            "regional_cost_surface": "Iran appears to be widening the battlespace so neighboring states and US-linked regional infrastructure feel exposed.",
+            "endurance_and_attrition": "The conflict is turning into an endurance contest focused on interceptor burn rates, repeated waves, and cumulative system strain.",
+            "commerce_and_shipping": "Commercial nodes, islands, and shipping routes are becoming leverage points rather than just collateral concerns.",
+            "regime_governability": "Internal control and wartime governability remain part of the picture rather than evidence of immediate regime collapse.",
+            "battlefield_attrition": "Direct battlefield losses and high-value military targets are still shaping the tempo of escalation.",
+            "diplomatic_pressure": "Regional diplomacy is being used to pressure neighbors and complicate coalition behavior around the war.",
+        }
+        grouped: dict[str, list[str]] = {}
+        for event in fact_pack.selected_events:
+            grouped.setdefault(event.bucket, []).append(event.evidence_id)
+
+        ordered_buckets = sorted(
+            grouped,
+            key=lambda bucket: max(
+                (event.impact for event in fact_pack.selected_events if event.bucket == bucket),
+                default=0,
+            ),
+            reverse=True,
+        )
+        lenses: list[dict[str, object]] = []
+        for bucket in ordered_buckets[:4]:
+            lenses.append(
+                {
+                    "label": bucket.replace("_", " "),
+                    "claim": templates.get(bucket, "This bucket materially affects the current picture."),
+                    "evidence_ids": grouped.get(bucket, [])[:3],
+                }
+            )
+        return lenses
+
     def _normalize_frame(self, raw_frame: dict, fact_pack: FactPack) -> dict | None:
         if not isinstance(raw_frame, dict):
             return None
@@ -323,6 +355,22 @@ class ResearcherAgent(BaseAgent):
                         }
                     )
 
+        if not core_lenses:
+            fallback_claim = self._shorten(str(raw_frame.get("claim") or "").strip(), 180)
+            fallback_label = self._shorten(str(raw_frame.get("label") or "").strip(), 48)
+            fallback_ids = raw_frame.get("evidence_ids")
+            if not isinstance(fallback_ids, list):
+                fallback_ids = [event.evidence_id for event in fact_pack.selected_events[:2]]
+            fallback_ids = [str(value).strip() for value in fallback_ids if str(value).strip()][:3]
+            if fallback_claim:
+                core_lenses.append(
+                    {
+                        "label": fallback_label or "lens",
+                        "claim": fallback_claim,
+                        "evidence_ids": fallback_ids,
+                    }
+                )
+
         secondary_points = []
         raw_secondary = raw_frame.get("secondary_points")
         if isinstance(raw_secondary, list):
@@ -343,6 +391,9 @@ class ResearcherAgent(BaseAgent):
                 f"The main shift is around {fact_pack.selected_events[0].bucket.replace('_', ' ')}.",
                 180,
             )
+
+        if not core_lenses:
+            core_lenses = self._fallback_lenses_from_fact_pack(fact_pack)
 
         if not main_shift or not core_lenses:
             return None
