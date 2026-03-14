@@ -101,6 +101,13 @@ class ResearcherAgent(BaseAgent):
         return ResearcherAgent._to_utc_iso(match.group(1).strip()) or match.group(1).strip()
 
     @staticmethod
+    def _normalized_source_prompt(source_prompt: str) -> str:
+        lines = source_prompt.splitlines()
+        filtered = [line for line in lines if not re.match(r"(?im)^\s*generated\s*:", line or "")]
+        normalized = "\n".join(filtered).strip()
+        return normalized or source_prompt.strip()
+
+    @staticmethod
     def _trim_incomplete_tail(text: str) -> str:
         clean = re.sub(r"\n{3,}", "\n\n", text).strip()
         if not clean:
@@ -217,7 +224,8 @@ class ResearcherAgent(BaseAgent):
             )
             return False
 
-        prompt_hash = hashlib.sha256(source_prompt.encode("utf-8")).hexdigest()
+        normalized_prompt = self._normalized_source_prompt(source_prompt)
+        prompt_hash = hashlib.sha256(normalized_prompt.encode("utf-8")).hexdigest()
         existing_snapshot = await asyncio.to_thread(self._load_latest_snapshot, "ui_current_picture")
         existing_age = await asyncio.to_thread(self._snapshot_age_seconds, "ui_current_picture")
         previous_prompt_hash = await self.get_agent_state(self.ui_current_picture_last_prompt_hash_state_key, default="")
@@ -313,7 +321,8 @@ class ResearcherAgent(BaseAgent):
             while True:
                 await asyncio.sleep(self.ui_current_picture_interval_sec)
 
-        await asyncio.sleep(random.uniform(2, 8))
+        initial_sleep = self.ui_current_picture_interval_sec + int(random.uniform(2, 8))
+        await asyncio.sleep(initial_sleep)
         while True:
             try:
                 await self.refresh_ui_current_picture_once(reason="scheduled")
