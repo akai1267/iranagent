@@ -1,0 +1,107 @@
+rss_feeds:
+  - url: "https://feeds.reuters.com/reuters/worldNews"
+    outlet: "Reuters"
+    type: "news_wire"
+    reliability: 0.9
+
+  - url: "https://www.iaea.org/feeds/topstories.xml"
+    outlet: "IAEA"
+    type: "official"
+    reliability: 1.0
+
+  - url: "https://iranintl.com/en/rss"
+    outlet: "Iran International"
+    type: "news_wire"
+    reliability: 0.85
+
+  - url: "https://www.rand.org/blog.xml"
+    outlet: "RAND Corporation"
+    type: "think_tank"
+    reliability: 0.85
+
+  - url: "https://www.crisisgroup.org/rss.xml"
+    outlet: "International Crisis Group"
+    type: "think_tank"
+    reliability: 0.85
+
+  - url: "https://www.brookings.edu/feed/"
+    outlet: "Brookings Institution"
+    type: "think_tank"
+    reliability: 0.8
+
+  - url: "https://feeds.bbci.co.uk/news/world/middle_east/rss.xml"
+    outlet: "BBC Middle East"
+    type: "news_wire"
+    reliability: 0.85
+
+  - url: "https://rss.nytimes.com/services/xml/rss/nyt/MiddleEast.xml"
+    outlet: "New York Times"
+    type: "news_wire"
+    reliability: 0.85
+
+x_accounts:
+  - handle: "sentdefender"
+    priority: "high"
+    reliability: 0.72
+    notes: "Real-time OSINT, strong on military movements, occasional errors"
+  - handle: "osint613"
+    priority: "high"
+    reliability: 0.70
+    notes: "Israeli-focused OSINT, good on IDF/Iran axis"
+  - handle: "faytuks"
+    priority: "high"
+    reliability: 0.75
+    notes: "Conflict reporter, strong sourcing on Middle East events"
+  - handle: "dailyirannews"
+    priority: "high"
+    reliability: 0.68
+    notes: "Iran-specific aggregator, useful for domestic Iran news"
+
+telegram_channels:
+  - channel: "ddgeopolitics"
+    skepticism: "medium"
+    reliability: 0.60
+    priority: "high"
+    notes: "Geopolitics aggregator, good reach, conservative reliability score"
+
+  - channel: "geopolitics_prime"
+    skepticism: "medium"
+    reliability: 0.58
+    priority: "medium"
+    notes: "Aggregator, overlaps with ddgeopolitics"
+
+  - channel: "warmonitors"
+    skepticism: "medium"
+    reliability: 0.62
+    priority: "high"
+    notes: "Active conflict monitoring, tends to be early on events"
+
+  - channel: "Slavyangrad"
+    skepticism: "high"
+    reliability: 0.45
+    priority: "medium"
+    notes: "Russian milblog — valuable for proxy/Ukraine-Iran nexus, pro-Russian framing. Treat all claims with high skepticism. Useful for axis messaging signals."
+
+  - channel: "colonelcassad"
+    skepticism: "high"
+    reliability: 0.45
+    priority: "medium"
+    notes: "Russian milblog — same caveats as Slavyangrad. Boris Rozhin. Cross-reference before treating as signal."
+
+  - channel: "MiddleEastSpectator"
+    skepticism: "medium"
+    reliability: 0.63
+    priority: "high"
+    notes: "ME-focused, reasonable signal quality for regional developments"
+
+  - channel: "Mediterranean_Man"
+    skepticism: "medium"
+    reliability: 0.60
+    priority: "medium"
+    notes: "Regional analysis, occasional good scoops"
+
+  - channel: "intelslava"
+    skepticism: "high"
+    reliability: 0.45
+    priority: "low"
+    notes: "Russian-linked aggregator. Low reliability, use for Russian framing only"

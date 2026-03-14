@@ -1,0 +1,212 @@
+post_judgment: |
+  Context: {{context}}
+
+  Layered context:
+  {{layered_context}}
+
+  Anchor documents:
+  {{anchor_documents}}
+
+  Contract weights:
+  structural_context={{weight_structural}}, current_picture={{weight_current}}, latest_stream_deltas={{weight_deltas}}, relevant_prior_posts={{weight_priors}}
+
+  Worth publishing? Only yes if at least one is true:
+  - stream materially changes the current picture
+  - stream contradicts the current picture
+  - you can draw an implication the briefings did not draw
+  - this revises a prior post/theory
+
+  Do NOT publish if:
+  - it just summarizes CTP/ISW or Iran Monitor recap
+  - it restates current picture language
+  - it mirrors a stream headline without analytical gain
+
+  Return JSON: {"worth_posting": bool, "reason": "one sentence", "supersedes_id": "post id or null"}
+
+write_post: |
+  {{voice_prompt}}
+  {{superseded_note}}
+
+  Context: {{context}}
+
+  Layered context (from briefing pack):
+  {{layered_context}}
+
+  Freshness contract:
+  {{freshness_contract}}
+
+  Working theories:
+  {{working_theories}}
+
+  Relevant prior posts (most recent first):
+  {{relevant_prior_posts}}
+
+  Evidence ledger (use IDs in-line as [E#] for every material claim):
+  {{evidence_ledger}}
+
+  Weighting order (strict): Structural Context -> Current Picture -> Latest High-Signal Deltas -> Relevant Prior Posts.
+  Never treat raw stream as more authoritative than anchor reporting.
+  Do not repackage recap sources.
+  Do not infer day-of conditions beyond freshness horizon.
+
+  Return JSON: {"title": "str", "content": "str", "tags": ["str"]}
+
+rewrite_post: |
+  {{voice_prompt}}
+
+  Rewrite this post to pass strict grounding checks.
+  Issues:
+  {{issues}}
+
+  Original draft:
+  {{draft}}
+
+  Evidence ledger:
+  {{evidence_ledger}}
+
+  Freshness contract:
+  {{freshness_contract}}
+
+  Rules:
+  - Keep every material claim mapped to [E#] tags.
+  - Remove unsupported, stale, or boilerplate claims.
+  - Do not infer beyond freshness horizon.
+
+  Return JSON: {"title": "str", "content": "str", "tags": ["str"]}
+
+post_verifier: |
+  Verify this candidate post before publish.
+
+  Title:
+  {{title}}
+
+  Post:
+  {{post_content}}
+
+  Freshness:
+  {{freshness}}
+
+  Current picture excerpt:
+  {{current_picture}}
+
+  Evidence ledger:
+  {{evidence_ledger}}
+
+  Checks:
+  1. Unsupported or unmapped material claims
+  2. Stale-context overconfidence
+  3. Contradiction with current picture
+  4. Boilerplate/copied framing and vague filler
+  5. Missing concrete grounding tags [E#]
+  6. Restating recap headlines without analysis
+
+  Return JSON:
+  {"passes": true, "issues": [], "needs_rewrite": false, "quality_flags": []}
+
+theory_update_check: |
+  Post written:
+  {{post_content}}
+
+  Current working theories:
+  {{current_theories}}
+
+  Grounding evidence:
+  {{evidence_snippets}}
+
+  Did this change HOW YOU THINK — not just what you know?
+  Warranted: pattern confirmed as prior, prior overturned, new useful lens.
+  Not warranted: new facts fitting existing priors.
+
+  Return JSON: {"update_warranted": bool, "what_changes": "str or null"}
+
+theory_rewrite: |
+  {{voice_prompt}}
+
+  Current working theories:
+  {{current_theories}}
+
+  Structural context:
+  {{structural_context}}
+
+  Current picture:
+  {{current_picture}}
+
+  Evidence snippets:
+  {{evidence_snippets}}
+
+  What changes: {{update_reason}}
+
+  Rewrite incorporating this update. First person, direct. Priors and lenses, not facts.
+  Do not introduce claims not supported by current picture/anchors.
+  Return full updated document text only.
+
+theory_verifier: |
+  Validate this theory update.
+
+  Updated theories:
+  {{updated_theories}}
+
+  Evidence snippets:
+  {{evidence_snippets}}
+
+  Checks:
+  1. Lens changes are supported by evidence
+  2. No stale or template framing
+  3. Not merely rewriting style without epistemic change
+
+  Return JSON: {"passes": true, "issues": []}
+
+query_answer: |
+  {{voice_prompt}}
+
+  Question: {{question}}
+
+  Your prior posts on this topic (cite as "as I wrote on [date], [title]..."):
+  {{prior_posts}}
+
+  Working theories:
+  {{working_theories}}
+
+  Layered context (from briefing pack):
+  {{layered_context}}
+
+  Instruction:
+  - Weight in this order: Structural Context, Current Picture, Stream Deltas, Prior Posts.
+  - Never treat stream as more authoritative than anchor sources.
+  - Do not regurgitate recap headlines.
+  - If asked what changed today, answer current picture first, then explicitly list deltas newer than stream_last_included_at.
+  {{uncertainty_line}}
+  {{changed_today_line}}
+
+  Answer directly. Cite your own posts. If uncertain, say what is known vs unknown.
+
+stream_assessment: |
+  Recent stream entries:
+  {{recent_stream}}
+
+  Layered context (from briefing pack):
+  {{layered_context}}
+
+  Given the latest structural context and current picture:
+  1. Do these new stream deltas materially change the picture?
+  2. Is this a contradiction, delta, confirmation, or none?
+  3. Is there a new open question worth researching?
+
+  Return JSON:
+  {"changes_picture": bool, "change_type": "delta|contradiction|confirmation|none", "what": "description or null", "new_question": "question or null"}
+
+question_priority: |
+  Score and rank these open research questions by priority.
+
+  Questions:
+  {{questions}}
+
+  Recent stream:
+  {{recent_stream}}
+
+  Current picture:
+  {{current_picture}}
+
+  Score each 0.0-1.0 by: centrality to conflict understanding, current-picture relevance, recency signal, age.
+
+  Return JSON: {"ranked": [{"id": "str", "score": 0.0}]}

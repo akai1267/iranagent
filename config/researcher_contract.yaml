@@ -1,0 +1,47 @@
+version: 1
+
+pack:
+  compile_tick_sec: 60
+  max_pack_age_sec: 5400
+  retention_count: 120
+  max_stream_deltas: 10
+  max_prior_posts: 6
+
+weights:
+  structural_context: 0.35
+  current_picture: 0.45
+  latest_stream_deltas: 0.15
+  relevant_prior_posts: 0.05
+
+publish_policy:
+  require_authoritative_fresh: true
+  authoritative_anchor_max_age_hours: 12
+  allow_stale_status_note: true
+  stale_status_cooldown_sec: 86400
+  min_evidence_refs: 2
+  block_low_confidence_stream_only: true
+
+theory_policy:
+  update_requires_authoritative_fresh: true
+  min_evidence_refs: 2
+  bootstrap_reset_once: true
+
+query_policy:
+  changed_today_keywords: "changed today,today,latest change"
+  require_layer_order: true
+
+style_policy:
+  banned_phrases:
+    - "another round of sanctions"
+    - "proxy route gives"
+    - "iran is not striking directly right now"
+    - "multiple competing assessments"
+    - "it remains to be seen"
+    - "some analysts argue"
+    - "complex and unpredictable"
+  require_paragraphs_only: true
+  require_evidence_tags: true
+
+observability:
+  unchanged_throttle_sec: 900
+  blocked_throttle_sec: 300

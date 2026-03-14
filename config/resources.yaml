@@ -1,0 +1,38 @@
+groq:
+  models:
+    fast:
+      name: "llama-3.1-8b-instant"
+      rpm_limit: 10
+      tpm_limit: 5000
+      default_temperature: 0.1
+    standard:
+      name: "llama-3.3-70b-versatile"
+      rpm_limit: 4
+      tpm_limit: 2000
+      default_temperature: 0.3
+    deep:
+      name: "llama-3.3-70b-versatile"
+      rpm_limit: 4
+      tpm_limit: 2000
+      default_temperature: 0.7
+
+  rate_limit_threshold: 0.5
+  rate_limit_backoff: 62
+
+mode_thresholds:
+  light_mode: 0.5
+  minimal_mode: 0.7
+
+poll_intervals:
+  full: 600
+  light: 1800
+  minimal: 3600
+
+dive_budget:
+  full: 4
+  light: 0
+  minimal: 0
+
+stream:
+  max_age_hours: 48
+  wipe_interval_hours: 6

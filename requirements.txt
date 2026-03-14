@@ -1,0 +1,36 @@
+# Groq LLM
+groq==0.9.0
+
+# Web framework + WebSocket
+fastapi==0.111.0
+uvicorn[standard]==0.30.1
+websockets==12.0
+
+# Redis
+redis[asyncio]==5.0.6
+
+# Data validation
+pydantic==2.7.1
+
+# Config
+PyYAML==6.0.1
+
+# RSS feeds
+feedparser==6.0.11
+
+# X (Twitter)
+tweepy==4.14.0
+
+# Telegram
+telethon==1.36.0
+
+# Web search + content fetch
+httpx==0.27.0
+beautifulsoup4==4.12.3
+lxml==5.2.2
+
+# Tavily search client
+tavily-python==0.3.3
+
+# Utilities
+python-dotenv==1.0.1
