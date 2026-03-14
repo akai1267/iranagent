@@ -10,6 +10,10 @@ import yaml
 
 REQUIRED_TEMPLATE_IDS = [
     "post_judgment",
+    "post_frame",
+    "post_prose",
+    "post_prose_rewrite",
+    "post_verifier_v2",
     "write_post",
     "rewrite_post",
     "post_verifier",
@@ -19,20 +23,30 @@ REQUIRED_TEMPLATE_IDS = [
     "query_answer",
     "stream_assessment",
     "question_priority",
+    "current_picture_frame",
+    "current_picture_prose",
+    "current_picture_verifier_v2",
 ]
 
 
 DEFAULT_TEMPLATES: dict[str, str] = {
     "post_judgment": "Context: {{context}}\n\nLayered context:\n{{layered_context}}\n\nReturn JSON: {\"worth_posting\": bool, \"reason\": \"one sentence\", \"supersedes_id\": \"post id or null\"}",
-    "write_post": "{{voice_prompt}}\n\nContext: {{context}}\n\nLayered context:\n{{layered_context}}\n\nEvidence ledger:\n{{evidence_ledger}}\n\nReturn JSON: {\"title\": \"str\", \"content\": \"str\", \"tags\": [\"str\"]}",
-    "rewrite_post": "{{voice_prompt}}\n\nIssues:\n{{issues}}\n\nDraft:\n{{draft}}\n\nEvidence ledger:\n{{evidence_ledger}}\n\nReturn JSON: {\"title\": \"str\", \"content\": \"str\", \"tags\": [\"str\"]}",
+    "post_frame": "{{editorial_brief}}\n\nContext trigger:\n{{context}}\n\nLayered context:\n{{layered_context}}\n\nEvidence ledger:\n{{evidence_ledger}}\n\nReturn JSON: {\"title\": \"str\", \"thesis\": \"str\", \"why_now\": \"str\", \"core_claims\": [{\"claim\": \"str\", \"evidence_ids\": [\"E1\"]}], \"supporting_evidence_ids\": [\"E1\"], \"revision_of_prior\": \"str or null\", \"watchpoint\": \"str\", \"confidence\": \"high|medium|low\", \"quality_risks\": [\"str\"]}",
+    "post_prose": "{{editorial_brief}}\n\nFrame:\n{{frame_json}}\n\nWrite the final note only.",
+    "post_prose_rewrite": "{{editorial_brief}}\n\nIssues:\n{{issues}}\n\nFrame:\n{{frame_json}}\n\nDraft:\n{{draft}}\n\nWrite the final revised note only.",
+    "post_verifier_v2": "Frame:\n{{frame_json}}\n\nPublic note:\n{{post_content}}\n\nEvidence ledger:\n{{evidence_ledger}}\n\nReturn JSON: {\"passes\": true, \"issues\": [], \"needs_rewrite\": false, \"claim_map\": [{\"claim\": \"str\", \"evidence_ids\": [\"E1\"]}], \"quality_flags\": []}",
+    "write_post": "{{editorial_brief}}\n\nContext: {{context}}\n\nLayered context:\n{{layered_context}}\n\nEvidence ledger:\n{{evidence_ledger}}\n\nReturn JSON: {\"title\": \"str\", \"content\": \"str\", \"tags\": [\"str\"]}",
+    "rewrite_post": "{{editorial_brief}}\n\nIssues:\n{{issues}}\n\nDraft:\n{{draft}}\n\nEvidence ledger:\n{{evidence_ledger}}\n\nReturn JSON: {\"title\": \"str\", \"content\": \"str\", \"tags\": [\"str\"]}",
     "post_verifier": "Title: {{title}}\n\nPost:\n{{post_content}}\n\nEvidence ledger:\n{{evidence_ledger}}\n\nReturn JSON: {\"passes\": true, \"issues\": [], \"needs_rewrite\": false, \"quality_flags\": []}",
     "theory_update_check": "Post:\n{{post_content}}\n\nCurrent theories:\n{{current_theories}}\n\nReturn JSON: {\"update_warranted\": bool, \"what_changes\": \"str or null\"}",
-    "theory_rewrite": "{{voice_prompt}}\n\nCurrent theories:\n{{current_theories}}\n\nStructural:\n{{structural_context}}\n\nCurrent picture:\n{{current_picture}}\n\nEvidence:\n{{evidence_snippets}}\n\nWhat changes: {{update_reason}}\n\nReturn updated text only.",
+    "theory_rewrite": "{{editorial_brief}}\n\nCurrent theories:\n{{current_theories}}\n\nStructural:\n{{structural_context}}\n\nCurrent picture:\n{{current_picture}}\n\nEvidence:\n{{evidence_snippets}}\n\nWhat changes: {{update_reason}}\n\nReturn updated text only.",
     "theory_verifier": "Updated theories:\n{{updated_theories}}\n\nEvidence:\n{{evidence_snippets}}\n\nReturn JSON: {\"passes\": true, \"issues\": []}",
-    "query_answer": "{{voice_prompt}}\n\nQuestion: {{question}}\n\nLayered context:\n{{layered_context}}\n\nAnswer directly.",
+    "query_answer": "{{editorial_brief}}\n\nQuestion: {{question}}\n\nLayered context:\n{{layered_context}}\n\nAnswer directly.",
     "stream_assessment": "Recent stream:\n{{recent_stream}}\n\nLayered context:\n{{layered_context}}\n\nReturn JSON: {\"changes_picture\": bool, \"change_type\": \"delta|contradiction|confirmation|none\", \"what\": \"description or null\", \"new_question\": \"question or null\"}",
     "question_priority": "Questions:\n{{questions}}\n\nRecent stream:\n{{recent_stream}}\n\nCurrent picture:\n{{current_picture}}\n\nReturn JSON: {\"ranked\": [{\"id\": \"str\", \"score\": 0.0}]}",
+    "current_picture_frame": "{{current_picture_brief}}\n\nSource map:\n{{source_map}}\n\nStream deltas:\n{{delta_lines}}\n\nReturn JSON: {\"topline\": \"str\", \"operational_picture\": \"str\", \"political_diplomatic_picture\": \"str\", \"what_changed\": \"str\", \"what_is_continuing\": \"str\", \"watchpoints_12_24h\": \"str\", \"gaps\": \"str\", \"source_use\": \"str\"}",
+    "current_picture_prose": "{{current_picture_brief}}\n\nFrame:\n{{frame_json}}\n\nWrite the final brief only.",
+    "current_picture_verifier_v2": "Frame:\n{{frame_json}}\n\nBrief:\n{{snapshot_text}}\n\nSource docs summary:\n{{source_brief}}\n\nReturn JSON: {\"passes\": true, \"issues\": [], \"needs_rewrite\": false}",
 }
 
 
@@ -51,6 +65,51 @@ class WeightPolicy:
     current_picture: float = 0.45
     latest_stream_deltas: float = 0.15
     relevant_prior_posts: float = 0.05
+
+
+@dataclass
+class WritingPolicy:
+    output_shape: str = "analyst_note"
+    public_grounding_mode: str = "hidden_provenance"
+    inference_mode: str = "disciplined_thesis"
+    writer_pipeline_v2: bool = True
+
+
+@dataclass
+class TemperaturePolicy:
+    post_frame: float = 0.25
+    post_prose: float = 0.75
+    post_prose_rewrite: float = 0.65
+    post_verifier_v2: float = 0.10
+    current_picture_frame: float = 0.25
+    current_picture_prose: float = 0.65
+    current_picture_verifier_v2: float = 0.10
+    query_answer: float = 0.60
+    theory_rewrite: float = 0.50
+    theory_verifier: float = 0.10
+
+
+@dataclass
+class PriorContextPolicy:
+    excluded_quality_flags: list[str] = field(default_factory=lambda: ["stale_status", "low_confidence_stream_only"])
+    exclude_banned_phrase_posts: bool = True
+    max_age_days: int = 14
+    prompt_max_posts: int = 4
+
+
+@dataclass
+class TitlePolicy:
+    max_words: int = 10
+    avoid_generic_titles: bool = True
+    derive_from_thesis_if_missing: bool = True
+
+
+@dataclass
+class CurrentPicturePolicy:
+    paragraph_min: int = 4
+    paragraph_max: int = 5
+    allow_markdown_headings: bool = False
+    analyst_specificity_required: bool = True
 
 
 @dataclass
@@ -100,6 +159,11 @@ class ResearcherContract:
     version: int = 1
     pack: PackPolicy = field(default_factory=PackPolicy)
     weights: WeightPolicy = field(default_factory=WeightPolicy)
+    writing_policy: WritingPolicy = field(default_factory=WritingPolicy)
+    temperature_policy: TemperaturePolicy = field(default_factory=TemperaturePolicy)
+    prior_context_policy: PriorContextPolicy = field(default_factory=PriorContextPolicy)
+    title_policy: TitlePolicy = field(default_factory=TitlePolicy)
+    current_picture_policy: CurrentPicturePolicy = field(default_factory=CurrentPicturePolicy)
     publish_policy: PublishPolicy = field(default_factory=PublishPolicy)
     theory_policy: TheoryPolicy = field(default_factory=TheoryPolicy)
     query_policy: QueryPolicy = field(default_factory=QueryPolicy)
@@ -145,10 +209,26 @@ class ResearcherContract:
         query_policy = payload.get("query_policy", {}) if isinstance(payload.get("query_policy", {}), dict) else {}
         style_policy = payload.get("style_policy", {}) if isinstance(payload.get("style_policy", {}), dict) else {}
         observability = payload.get("observability", {}) if isinstance(payload.get("observability", {}), dict) else {}
+        writing_policy = payload.get("writing_policy", {}) if isinstance(payload.get("writing_policy", {}), dict) else {}
+        temperature_policy = (
+            payload.get("temperature_policy", {}) if isinstance(payload.get("temperature_policy", {}), dict) else {}
+        )
+        prior_context_policy = (
+            payload.get("prior_context_policy", {}) if isinstance(payload.get("prior_context_policy", {}), dict) else {}
+        )
+        title_policy = payload.get("title_policy", {}) if isinstance(payload.get("title_policy", {}), dict) else {}
+        current_picture_policy = (
+            payload.get("current_picture_policy", {})
+            if isinstance(payload.get("current_picture_policy", {}), dict)
+            else {}
+        )
 
         banned = style_policy.get("banned_phrases", [])
         if not isinstance(banned, list):
             banned = []
+        excluded_quality_flags = prior_context_policy.get("excluded_quality_flags", [])
+        if not isinstance(excluded_quality_flags, list):
+            excluded_quality_flags = []
 
         return cls(
             version=cls._int(payload.get("version"), 1, minimum=1),
@@ -164,6 +244,47 @@ class ResearcherContract:
                 current_picture=cls._float(weights.get("current_picture"), 0.45, minimum=0.0),
                 latest_stream_deltas=cls._float(weights.get("latest_stream_deltas"), 0.15, minimum=0.0),
                 relevant_prior_posts=cls._float(weights.get("relevant_prior_posts"), 0.05, minimum=0.0),
+            ),
+            writing_policy=WritingPolicy(
+                output_shape=str(writing_policy.get("output_shape", "analyst_note")),
+                public_grounding_mode=str(writing_policy.get("public_grounding_mode", "hidden_provenance")),
+                inference_mode=str(writing_policy.get("inference_mode", "disciplined_thesis")),
+                writer_pipeline_v2=cls._bool(writing_policy.get("writer_pipeline_v2"), True),
+            ),
+            temperature_policy=TemperaturePolicy(
+                post_frame=cls._float(temperature_policy.get("post_frame"), 0.25, minimum=0.0),
+                post_prose=cls._float(temperature_policy.get("post_prose"), 0.75, minimum=0.0),
+                post_prose_rewrite=cls._float(temperature_policy.get("post_prose_rewrite"), 0.65, minimum=0.0),
+                post_verifier_v2=cls._float(temperature_policy.get("post_verifier_v2"), 0.10, minimum=0.0),
+                current_picture_frame=cls._float(temperature_policy.get("current_picture_frame"), 0.25, minimum=0.0),
+                current_picture_prose=cls._float(temperature_policy.get("current_picture_prose"), 0.65, minimum=0.0),
+                current_picture_verifier_v2=cls._float(
+                    temperature_policy.get("current_picture_verifier_v2"), 0.10, minimum=0.0
+                ),
+                query_answer=cls._float(temperature_policy.get("query_answer"), 0.60, minimum=0.0),
+                theory_rewrite=cls._float(temperature_policy.get("theory_rewrite"), 0.50, minimum=0.0),
+                theory_verifier=cls._float(temperature_policy.get("theory_verifier"), 0.10, minimum=0.0),
+            ),
+            prior_context_policy=PriorContextPolicy(
+                excluded_quality_flags=[str(item) for item in excluded_quality_flags if str(item).strip()],
+                exclude_banned_phrase_posts=cls._bool(
+                    prior_context_policy.get("exclude_banned_phrase_posts"), True
+                ),
+                max_age_days=cls._int(prior_context_policy.get("max_age_days"), 14, minimum=1),
+                prompt_max_posts=cls._int(prior_context_policy.get("prompt_max_posts"), 4, minimum=1),
+            ),
+            title_policy=TitlePolicy(
+                max_words=cls._int(title_policy.get("max_words"), 10, minimum=3),
+                avoid_generic_titles=cls._bool(title_policy.get("avoid_generic_titles"), True),
+                derive_from_thesis_if_missing=cls._bool(title_policy.get("derive_from_thesis_if_missing"), True),
+            ),
+            current_picture_policy=CurrentPicturePolicy(
+                paragraph_min=cls._int(current_picture_policy.get("paragraph_min"), 4, minimum=1),
+                paragraph_max=cls._int(current_picture_policy.get("paragraph_max"), 5, minimum=1),
+                allow_markdown_headings=cls._bool(current_picture_policy.get("allow_markdown_headings"), False),
+                analyst_specificity_required=cls._bool(
+                    current_picture_policy.get("analyst_specificity_required"), True
+                ),
             ),
             publish_policy=PublishPolicy(
                 require_authoritative_fresh=cls._bool(publish_policy.get("require_authoritative_fresh"), True),

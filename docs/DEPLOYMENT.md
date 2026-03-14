@@ -38,6 +38,9 @@ Optional but useful strict-saver values:
 - `CONTEXT_MAX_STALENESS_SEC=21600`
 - `BRIEF_PACK_COMPILE_TICK_SEC=60`
 - `BRIEF_PACK_MAX_AGE_SEC=5400`
+- `WRITER_PIPELINE_V2=true`
+- `RESEARCHER_EDITORIAL_BRIEF_PATH=/config/editorial_brief.md`
+- `RESEARCHER_CURRENT_PICTURE_BRIEF_PATH=/config/current_picture_brief.md`
 
 ## 4. Build and start
 
@@ -69,8 +72,10 @@ Run these checks after each deploy:
 1. `GET /health` returns all agents `ok`
 2. `GET /context/status` returns valid snapshot/provider state
 3. `GET /briefing-pack/latest` returns current pack
-4. `GET /observatory/recent` returns sequenced events
-5. Frontend loads and tabs render correctly
+4. `GET /posts` returns items with additive provenance fields (`claim_map`, `evidence_refs`)
+5. `GET /observatory/recent` returns sequenced events
+6. Frontend loads and tabs render correctly
+7. `GET /posts/{id}/evidence` returns internal provenance for a recent post
 
 ## 7. Branch and release workflow
 

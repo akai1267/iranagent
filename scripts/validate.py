@@ -367,11 +367,13 @@ def no_banned_phrases() -> CheckResult:
 
 
 def voice_prompt_not_contaminated() -> CheckResult:
-    researcher = read_file(ROOT / "agents" / "researcher" / "agent.py").lower()
+    editorial = read_file(ROOT / "config" / "editorial_brief.md").lower()
+    current_picture = read_file(ROOT / "config" / "current_picture_brief.md").lower()
+    combined = f"{editorial}\n{current_picture}"
     for phrase in BANNED_CONTAMINATION_PHRASES:
-        if phrase in researcher:
-            return CheckResult(False, f"Contaminating template phrase still present in VOICE_PROMPT: '{phrase}'")
-    return CheckResult(True, "VOICE_PROMPT has no scenario-specific contamination phrases")
+        if phrase in combined:
+            return CheckResult(False, f"Contaminating template phrase still present in editorial briefs: '{phrase}'")
+    return CheckResult(True, "Editorial briefs have no scenario-specific contamination phrases")
 
 
 def posts_not_empty() -> CheckResult:
@@ -821,6 +823,11 @@ def researcher_contract_files_valid() -> CheckResult:
         "version",
         "pack",
         "weights",
+        "writing_policy",
+        "temperature_policy",
+        "prior_context_policy",
+        "title_policy",
+        "current_picture_policy",
         "publish_policy",
         "theory_policy",
         "query_policy",
@@ -833,6 +840,10 @@ def researcher_contract_files_valid() -> CheckResult:
 
     required_templates = {
         "post_judgment",
+        "post_frame",
+        "post_prose",
+        "post_prose_rewrite",
+        "post_verifier_v2",
         "write_post",
         "rewrite_post",
         "post_verifier",
@@ -842,6 +853,9 @@ def researcher_contract_files_valid() -> CheckResult:
         "query_answer",
         "stream_assessment",
         "question_priority",
+        "current_picture_frame",
+        "current_picture_prose",
+        "current_picture_verifier_v2",
     }
     if not required_templates.issubset(set(templates_data.keys())):
         missing = sorted(required_templates - set(templates_data.keys()))

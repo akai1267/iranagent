@@ -39,25 +39,11 @@ from shared.schemas import AgentMessage, Post
 
 logger = logging.getLogger(__name__)
 
-VOICE_PROMPT = """You write in the voice of a brilliant friend who has been thinking hard
-about the Iran conflict for a long time.
+EDITORIAL_BRIEF_FALLBACK = """Write like a political-military analyst for readers who already follow the conflict closely.
+Lead with the best read, use dense natural paragraphs, and prefer concrete operational meaning over recap."""
 
-Rules:
-- Lead with your assessment. Then reasoning.
-- Have a point of view. State it. Don't hide behind \"analysts say.\"
-- Confidence matches reality: \"This is clear...\" / \"My best read is...\" / \"Genuinely uncertain here...\"
-- No false balance. If evidence points one way, say so.
-- Cite sources informally: \"per the IAEA February report...\" / \"Telegram reporting, unconfirmed...\"
-- If updating a prior: say explicitly what changed and why.
-
-GOOD EXAMPLE — style only:
-\"My base case is that escalation is controlled, not linear. The operational tempo is still high, but the signaling is more about shaping thresholds than crossing new ones. The key is what changed this cycle versus what has been continuous for days.\"
-
-BAD EXAMPLE — never write like this:
-\"Multiple analysts have suggested various options in response to recent developments. It remains to be seen how the situation will evolve in complex and unpredictable ways.\"
-
-Never write: \"Multiple competing assessments\" / \"It remains to be seen\" /
-\"Some analysts argue X while others contend Y\" without your view on who's right."""
+CURRENT_PICTURE_BRIEF_FALLBACK = """Write a compact analyst brief that explains the operating baseline, what changed, what did not, and what to watch next.
+Keep it specific, paragraph-based, and anchored in authoritative reporting."""
 
 CALL_MODELS = {
     "post_judgment": "fast",
@@ -192,10 +178,29 @@ class ResearcherAgent(BaseAgent):
             if Path("/config/researcher_templates.yaml").exists()
             else Path("config/researcher_templates.yaml")
         )
+        default_editorial_brief_path = (
+            Path("/config/editorial_brief.md") if Path("/config/editorial_brief.md").exists() else Path("config/editorial_brief.md")
+        )
+        default_current_picture_brief_path = (
+            Path("/config/current_picture_brief.md")
+            if Path("/config/current_picture_brief.md").exists()
+            else Path("config/current_picture_brief.md")
+        )
         self.contract_path = Path(os.environ.get("RESEARCHER_CONTRACT_PATH", str(default_contract_path)))
         self.templates_path = Path(os.environ.get("RESEARCHER_TEMPLATES_PATH", str(default_templates_path)))
+        self.editorial_brief_path = Path(
+            os.environ.get("RESEARCHER_EDITORIAL_BRIEF_PATH", str(default_editorial_brief_path))
+        )
+        self.current_picture_brief_path = Path(
+            os.environ.get("RESEARCHER_CURRENT_PICTURE_BRIEF_PATH", str(default_current_picture_brief_path))
+        )
         self.contract, self.contract_fallback = load_contract(self.contract_path)
         self.templates, self.templates_fallback = load_templates(self.templates_path)
+        self.editorial_brief = self._load_brief_text(self.editorial_brief_path, EDITORIAL_BRIEF_FALLBACK)
+        self.current_picture_brief = self._load_brief_text(
+            self.current_picture_brief_path,
+            CURRENT_PICTURE_BRIEF_FALLBACK,
+        )
         self.contract_hash = contract_hash(self.contract)
         self.brief_pack_state_cycle_key = "brief_pack:last_cycle_id"
         self.brief_pack_state_generated_at_key = "brief_pack:last_generated_at"
@@ -286,6 +291,26 @@ class ResearcherAgent(BaseAgent):
         return str(self.call_models.get(key, CALL_MODELS.get(key, "fast")))
 
     @staticmethod
+    def _load_brief_text(path: Path, fallback_text: str) -> str:
+        try:
+            if path.exists():
+                content = path.read_text(encoding="utf-8").strip()
+                if content:
+                    return content
+        except Exception:
+            pass
+        return fallback_text.strip()
+
+    def _temperature_for(self, key: str, default: float | None = None) -> float:
+        policy = self.contract.temperature_policy
+        value = getattr(policy, key, default if default is not None else 0.3)
+        try:
+            parsed = float(value)
+        except (TypeError, ValueError):
+            parsed = default if default is not None else 0.3
+        return max(0.0, min(1.5, float(parsed)))
+
+    @staticmethod
     def _resolve_briefing_pack_root() -> Path:
         env_root = os.environ.get("BRIEFING_PACK_ROOT", "").strip()
         if env_root:
@@ -333,17 +358,28 @@ class ResearcherAgent(BaseAgent):
             self.contract.publish_policy.stale_status_cooldown_sec,
             minimum=3600,
         )
+        default_writer_pipeline_v2 = "true" if self.contract.writing_policy.writer_pipeline_v2 else "false"
+        self.writer_pipeline_v2 = (
+            os.environ.get("WRITER_PIPELINE_V2", default_writer_pipeline_v2).strip().lower() == "true"
+        )
         self.briefing_pack.retention_count = self.pack_retention_count
 
     async def _reload_contract_and_templates(self) -> None:
         previous_hash = self.contract_hash
         contract, contract_fallback = load_contract(self.contract_path)
         templates, templates_fallback = load_templates(self.templates_path)
+        editorial_brief = self._load_brief_text(self.editorial_brief_path, EDITORIAL_BRIEF_FALLBACK)
+        current_picture_brief = self._load_brief_text(
+            self.current_picture_brief_path,
+            CURRENT_PICTURE_BRIEF_FALLBACK,
+        )
         new_hash = contract_hash(contract)
         self.contract = contract
         self.templates = templates
         self.contract_fallback = contract_fallback
         self.templates_fallback = templates_fallback
+        self.editorial_brief = editorial_brief
+        self.current_picture_brief = current_picture_brief
         self.contract_hash = new_hash
         self._apply_contract_runtime_defaults()
         if contract_fallback or templates_fallback:
@@ -383,7 +419,12 @@ class ResearcherAgent(BaseAgent):
         raw = str(value or "").strip()
         return raw if re.fullmatch(r"\d{8}T\d{6}Z", raw) else ""
 
-    def _style_violations(self, text: str, require_evidence_tags: bool = False) -> list[str]:
+    def _style_violations(
+        self,
+        text: str,
+        require_evidence_tags: bool = False,
+        allow_visible_evidence_tags: bool = True,
+    ) -> list[str]:
         violations: list[str] = []
         lower = str(text or "").lower()
         for phrase in self.contract.style_policy.banned_phrases:
@@ -398,6 +439,8 @@ class ResearcherAgent(BaseAgent):
                 if re.match(r"^[-*]\s", stripped) or re.match(r"^\d+\.\s", stripped):
                     violations.append("non_paragraph_format")
                     break
+        if not allow_visible_evidence_tags and re.search(r"\[[A-Z]\d+[A-Z0-9]*\]", str(text or "")):
+            violations.append("visible_evidence_tags")
         if require_evidence_tags and self.contract.style_policy.require_evidence_tags:
             if not re.search(r"\[E\d+\]", str(text or "")):
                 violations.append("missing_evidence_tags")
@@ -516,6 +559,7 @@ class ResearcherAgent(BaseAgent):
         title_raw: str,
         content_raw: str,
         context_text: str,
+        thesis: str = "",
     ) -> str:
         def _trim_title(text: str) -> str:
             t = self._clean_post_title_candidate(text)
@@ -525,8 +569,9 @@ class ResearcherAgent(BaseAgent):
             t = re.split(r"[;:]", t, maxsplit=1)[0].strip()
             t = re.split(r",\s", t, maxsplit=1)[0].strip()
             words = t.split()
-            if len(words) > 12:
-                t = " ".join(words[:12]).strip()
+            max_words = max(3, int(self.contract.title_policy.max_words))
+            if len(words) > max_words:
+                t = " ".join(words[:max_words]).strip()
             t = t.rstrip(",;:- ")
             if t.lower().endswith(("and", "or", "but", "because", "with", "than", "while", "that")):
                 t = " ".join(t.split()[:-1]).strip()
@@ -541,10 +586,17 @@ class ResearcherAgent(BaseAgent):
             "update",
             "post",
         }
+        if self.contract.title_policy.avoid_generic_titles and candidate.lower() in bad:
+            candidate = ""
         if candidate.lower() not in bad and len(candidate) >= 8:
             trimmed = _trim_title(candidate)
             if trimmed:
                 return trimmed
+
+        if self.contract.title_policy.derive_from_thesis_if_missing:
+            thesis_title = _trim_title(thesis)
+            if thesis_title and thesis_title.lower() not in bad:
+                return thesis_title
 
         content = re.sub(r"\[[A-Z]\d+[A-Z0-9]*\]", "", str(content_raw or ""))
         content = re.sub(r"\s+", " ", content).strip()
@@ -578,6 +630,177 @@ class ResearcherAgent(BaseAgent):
             body = raw[m.end() :].strip()
             body = re.sub(r"(?im)^\s*content\s*:\s*", "", body).strip()
         return title, body
+
+    @staticmethod
+    def _strip_public_evidence_tags(text: str) -> str:
+        clean = re.sub(r"\s*\[[A-Z]\d+[A-Z0-9]*\]", "", str(text or ""))
+        clean = re.sub(r"\n{3,}", "\n\n", clean)
+        clean = re.sub(r"[ \t]{2,}", " ", clean)
+        return clean.strip()
+
+    @staticmethod
+    def _coerce_string_list(value: Any) -> list[str]:
+        if isinstance(value, str):
+            return [value.strip()] if value.strip() else []
+        if not isinstance(value, list):
+            return []
+        return [str(item).strip() for item in value if str(item).strip()]
+
+    def _sanitize_evidence_ids(self, values: Any, valid_ids: set[str]) -> list[str]:
+        items = self._coerce_string_list(values)
+        seen: set[str] = set()
+        ordered: list[str] = []
+        for token in items:
+            if token not in valid_ids or token in seen:
+                continue
+            seen.add(token)
+            ordered.append(token)
+        return ordered
+
+    def _normalize_post_frame(self, frame: Any, evidence_ledger: list[dict[str, Any]]) -> dict[str, Any]:
+        valid_ids = {str(item.get("id")) for item in evidence_ledger if item.get("id")}
+        payload = frame if isinstance(frame, dict) else {}
+        core_claims_raw = payload.get("core_claims", [])
+        core_claims: list[dict[str, Any]] = []
+        if isinstance(core_claims_raw, list):
+            for item in core_claims_raw[:6]:
+                if isinstance(item, dict):
+                    claim = self._compact_text(str(item.get("claim", "")), 220)
+                    evidence_ids = self._sanitize_evidence_ids(item.get("evidence_ids", []), valid_ids)
+                else:
+                    claim = self._compact_text(str(item), 220)
+                    evidence_ids = []
+                if not claim:
+                    continue
+                core_claims.append({"claim": claim, "evidence_ids": evidence_ids})
+        supporting_ids = self._sanitize_evidence_ids(payload.get("supporting_evidence_ids", []), valid_ids)
+        if not core_claims:
+            thesis = self._compact_text(str(payload.get("thesis", "")).strip(), 220)
+            if thesis:
+                core_claims.append({"claim": thesis, "evidence_ids": supporting_ids[:2]})
+        if not supporting_ids:
+            for item in core_claims:
+                for evidence_id in item.get("evidence_ids", []):
+                    if evidence_id not in supporting_ids:
+                        supporting_ids.append(evidence_id)
+        return {
+            "title": self._clean_post_title_candidate(str(payload.get("title", ""))),
+            "thesis": self._compact_text(str(payload.get("thesis", "")).strip(), 260),
+            "why_now": self._compact_text(str(payload.get("why_now", "")).strip(), 260),
+            "core_claims": core_claims,
+            "supporting_evidence_ids": supporting_ids,
+            "revision_of_prior": self._compact_text(str(payload.get("revision_of_prior", "")).strip(), 220)
+            or None,
+            "watchpoint": self._compact_text(str(payload.get("watchpoint", "")).strip(), 220),
+            "confidence": str(payload.get("confidence", "medium")).strip().lower() or "medium",
+            "quality_risks": self._coerce_string_list(payload.get("quality_risks", []))[:6],
+        }
+
+    def _frame_claim_map(self, frame: dict[str, Any], evidence_ledger: list[dict[str, Any]]) -> list[dict[str, Any]]:
+        valid_ids = {str(item.get("id")) for item in evidence_ledger if item.get("id")}
+        claim_map: list[dict[str, Any]] = []
+        thesis = self._compact_text(str(frame.get("thesis", "")).strip(), 220)
+        supporting_ids = self._sanitize_evidence_ids(frame.get("supporting_evidence_ids", []), valid_ids)
+        if thesis:
+            claim_map.append({"claim": thesis, "evidence_ids": supporting_ids[:3]})
+        for item in frame.get("core_claims", []):
+            if not isinstance(item, dict):
+                continue
+            claim = self._compact_text(str(item.get("claim", "")).strip(), 220)
+            evidence_ids = self._sanitize_evidence_ids(item.get("evidence_ids", []), valid_ids)
+            if claim:
+                claim_map.append({"claim": claim, "evidence_ids": evidence_ids or supporting_ids[:2]})
+        watchpoint = self._compact_text(str(frame.get("watchpoint", "")).strip(), 220)
+        if watchpoint:
+            claim_map.append({"claim": watchpoint, "evidence_ids": supporting_ids[:2]})
+        dedup: list[dict[str, Any]] = []
+        seen: set[str] = set()
+        for item in claim_map:
+            claim = str(item.get("claim", "")).strip()
+            if not claim or claim in seen:
+                continue
+            seen.add(claim)
+            dedup.append(item)
+        return dedup
+
+    def _normalize_claim_map(self, claim_map: Any, evidence_ledger: list[dict[str, Any]], frame: dict[str, Any]) -> list[dict[str, Any]]:
+        valid_ids = {str(item.get("id")) for item in evidence_ledger if item.get("id")}
+        cleaned: list[dict[str, Any]] = []
+        if isinstance(claim_map, list):
+            for item in claim_map[:8]:
+                if not isinstance(item, dict):
+                    continue
+                claim = self._compact_text(str(item.get("claim", "")).strip(), 240)
+                evidence_ids = self._sanitize_evidence_ids(item.get("evidence_ids", []), valid_ids)
+                if claim and evidence_ids:
+                    cleaned.append({"claim": claim, "evidence_ids": evidence_ids})
+        if cleaned:
+            return cleaned
+        return self._frame_claim_map(frame, evidence_ledger)
+
+    def _normalize_current_picture_frame(self, frame: Any) -> dict[str, str]:
+        payload = frame if isinstance(frame, dict) else {}
+        keys = (
+            "topline",
+            "operational_picture",
+            "political_diplomatic_picture",
+            "what_changed",
+            "what_is_continuing",
+            "watchpoints_12_24h",
+            "gaps",
+            "source_use",
+        )
+        result = {key: self._compact_text(str(payload.get(key, "")).strip(), 320) for key in keys}
+        return result
+
+    @staticmethod
+    def _paragraph_count(text: str) -> int:
+        return len([part for part in re.split(r"\n\s*\n", str(text or "").strip()) if part.strip()])
+
+    def _post_tags_from_context(self, context: dict | str, frame: dict[str, Any] | None = None) -> list[str]:
+        tags: list[str] = ["analysis"]
+        if isinstance(context, dict):
+            source = str(context.get("from", "")).strip().lower()
+            change_type = str(context.get("change_type", "")).strip().lower()
+            if source and source not in {"", "stale_status"}:
+                tags.append(source)
+            if change_type and change_type not in tags:
+                tags.append(change_type)
+            if context.get("question"):
+                tags.append("research")
+        confidence = str((frame or {}).get("confidence", "")).strip().lower()
+        if confidence and confidence not in tags:
+            tags.append(confidence)
+        seen: set[str] = set()
+        ordered: list[str] = []
+        for item in tags:
+            token = str(item).strip().lower()
+            if not token or token in seen:
+                continue
+            seen.add(token)
+            ordered.append(token)
+        return ordered[:4]
+
+    def _fallback_post_from_frame(self, frame: dict[str, Any]) -> str:
+        paragraphs: list[str] = []
+        thesis = str(frame.get("thesis", "")).strip()
+        why_now = str(frame.get("why_now", "")).strip()
+        claims = [str(item.get("claim", "")).strip() for item in frame.get("core_claims", []) if isinstance(item, dict)]
+        watchpoint = str(frame.get("watchpoint", "")).strip()
+        revision = str(frame.get("revision_of_prior", "") or "").strip()
+        if thesis:
+            lead = thesis
+            if why_now:
+                lead = f"{lead} {why_now}"
+            paragraphs.append(lead.strip())
+        if claims:
+            paragraphs.append(" ".join(claims[:2]).strip())
+        if revision:
+            paragraphs.append(revision)
+        if watchpoint:
+            paragraphs.append(watchpoint)
+        cleaned = [" ".join(part.split()) for part in paragraphs if part.strip()]
+        return "\n\n".join(cleaned[:4]).strip()
 
     @staticmethod
     def _clean_source_body(text: str) -> str:
@@ -671,6 +894,23 @@ class ResearcherAgent(BaseAgent):
         briefing_facts: list[str],
         stream_deltas: list[dict],
     ) -> str:
+        frame = self._fallback_current_picture_frame(primary_facts, secondary_facts, briefing_facts, stream_deltas)
+        paragraphs = [
+            frame["topline"],
+            f"{frame['operational_picture']} {frame['what_changed']}".strip(),
+            f"{frame['political_diplomatic_picture']} {frame['what_is_continuing']}".strip(),
+            f"{frame['watchpoints_12_24h']} {frame['gaps']}".strip(),
+        ]
+        cleaned = [" ".join(part.split()) for part in paragraphs if str(part).strip()]
+        return "\n\n".join(cleaned).strip()
+
+    def _fallback_current_picture_frame(
+        self,
+        primary_facts: list[str],
+        secondary_facts: list[str],
+        briefing_facts: list[str],
+        stream_deltas: list[dict],
+    ) -> dict[str, str]:
         def _join_sentences(items: list[str], count: int, fallback: str) -> str:
             picked: list[str] = []
             for raw in items[:count]:
@@ -718,22 +958,16 @@ class ResearcherAgent(BaseAgent):
             "Confidence is medium where claims are anchored in the primary reports [A1][A2], and low for standalone stream deltas "
             "until corroborated by subsequent anchor reporting [S1][S2]."
         )
-
-        return (
-            "## CURRENT PICTURE\n"
-            "### Topline\n"
-            f"{topline}\n\n"
-            "### Operational picture\n"
-            f"{operational}\n\n"
-            "### Political and diplomatic picture\n"
-            f"{political}\n\n"
-            "### What changed this cycle\n"
-            f"{changed} {deltas_text}\n\n"
-            "### What matters next (12-24h)\n"
-            f"{watch}\n\n"
-            "### Confidence and gaps\n"
-            f"{confidence}\n"
-        )
+        return {
+            "topline": topline,
+            "operational_picture": operational,
+            "political_diplomatic_picture": political,
+            "what_changed": f"{changed} {deltas_text}".strip(),
+            "what_is_continuing": "The broader direction of the conflict is still being set by the same anchored pressures rather than a wholly new strategic turn [A1][A2].",
+            "watchpoints_12_24h": watch,
+            "gaps": confidence,
+            "source_use": "Fallback frame derived from anchored fact snippets plus limited stream deltas.",
+        }
 
     def _snapshot_meta(self, snapshot_type: str) -> dict:
         snapshot = self.context_store.get_latest_snapshot(snapshot_type)
@@ -823,6 +1057,42 @@ class ResearcherAgent(BaseAgent):
     async def _mark_stale_status_published(self) -> None:
         await self.set_agent_state(self.stale_status_last_published_state_key, datetime.now(timezone.utc).isoformat())
 
+    def _post_contains_banned_phrase(self, content: str) -> bool:
+        lower = str(content or "").lower()
+        return any(str(phrase).strip().lower() in lower for phrase in self.contract.style_policy.banned_phrases if str(phrase).strip())
+
+    def _prompt_eligible_prior_posts(self, posts: list[dict[str, Any]] | None) -> list[dict[str, Any]]:
+        if not posts:
+            return []
+        excluded_flags = {
+            str(flag).strip().lower()
+            for flag in self.contract.prior_context_policy.excluded_quality_flags
+            if str(flag).strip()
+        }
+        max_age_days = max(1, int(self.contract.prior_context_policy.max_age_days))
+        max_posts = max(1, int(self.contract.prior_context_policy.prompt_max_posts))
+        cutoff = datetime.now(timezone.utc) - timedelta(days=max_age_days)
+        selected: list[dict[str, Any]] = []
+        for post in posts:
+            if not isinstance(post, dict):
+                continue
+            quality_flags = post.get("quality_flags", [])
+            if isinstance(quality_flags, str):
+                quality_flags = [quality_flags]
+            quality_tokens = {str(flag).strip().lower() for flag in quality_flags if str(flag).strip()}
+            if excluded_flags.intersection(quality_tokens):
+                continue
+            content = str(post.get("content", "") or "")
+            if self.contract.prior_context_policy.exclude_banned_phrase_posts and self._post_contains_banned_phrase(content):
+                continue
+            timestamp = self._to_dt(str(post.get("timestamp") or ""))
+            if timestamp is not None and timestamp < cutoff:
+                continue
+            selected.append(post)
+            if len(selected) >= max_posts:
+                break
+        return selected
+
     def _is_low_confidence_stream_only(self, context: dict | str) -> bool:
         if not isinstance(context, dict):
             return False
@@ -888,7 +1158,7 @@ class ResearcherAgent(BaseAgent):
                 timestamp=str(item.get("timestamp") or ""),
             )
 
-        for post in prior_posts[:4]:
+        for post in self._prompt_eligible_prior_posts(prior_posts)[:4]:
             add(
                 "prior_post",
                 "supporting",
@@ -924,26 +1194,26 @@ class ResearcherAgent(BaseAgent):
         self,
         post_title: str,
         post_content: str,
+        frame: dict[str, Any],
         evidence_ledger: list[dict],
         freshness_meta: dict,
-        context_bundle: dict,
     ) -> dict:
         ledger_text = self._render_evidence_ledger(evidence_ledger[:18])
-        current_picture = self._compact_text(str(context_bundle.get("current_picture", "")), 950)
         prompt = self._render_prompt(
-            "post_verifier",
+            "post_verifier_v2",
             {
                 "title": post_title,
+                "frame_json": json.dumps(frame, ensure_ascii=False, indent=2),
                 "post_content": self._compact_text(post_content, 2000),
                 "freshness": json.dumps(freshness_meta, ensure_ascii=False),
-                "current_picture": current_picture,
                 "evidence_ledger": ledger_text,
             },
         )
         result = await self.llm(
             prompt,
             model="fast",
-            max_tokens=220,
+            max_tokens=320,
+            temperature=self._temperature_for("post_verifier_v2", 0.10),
             lane="background",
         )
         if not isinstance(result, dict):
@@ -951,11 +1221,13 @@ class ResearcherAgent(BaseAgent):
                 "passes": False,
                 "issues": ["Verifier returned invalid payload"],
                 "needs_rewrite": True,
+                "claim_map": [],
                 "quality_flags": ["verifier_invalid"],
             }
         result.setdefault("passes", False)
         result.setdefault("issues", [])
         result.setdefault("needs_rewrite", not bool(result.get("passes")))
+        result["claim_map"] = self._normalize_claim_map(result.get("claim_map", []), evidence_ledger, frame)
         quality_flags = result.get("quality_flags", [])
         if isinstance(quality_flags, str):
             quality_flags = [quality_flags]
@@ -1014,7 +1286,9 @@ class ResearcherAgent(BaseAgent):
         safe_limit = max(1, min(int(limit), 50))
         rows = self.db.execute(
             """
-            SELECT id, timestamp, title, content, tags
+            SELECT id, timestamp, title, content, tags,
+                   COALESCE(quality_flags, '[]') AS quality_flags,
+                   COALESCE(freshness_meta, '{}') AS freshness_meta
             FROM posts
             ORDER BY timestamp DESC
             LIMIT ?
@@ -1028,9 +1302,12 @@ class ResearcherAgent(BaseAgent):
                 "title": row[2],
                 "content": row[3],
                 "tags": row[4] or "",
+                "quality_flags": json.loads(row[5] or "[]"),
+                "freshness_meta": json.loads(row[6] or "{}"),
             }
             for row in rows
         ]
+        return self._prompt_eligible_prior_posts(posts)
 
     @staticmethod
     def _doc_ref_for_pack(doc: dict[str, Any] | None) -> dict[str, Any] | None:
@@ -1545,127 +1822,88 @@ Rules:
             else "(none)"
         )
 
-        prompt = f"""You are writing a professional Iran conflict brief for policy and intelligence analysts.
-Assume the reader already follows events daily and does not need primers.
-Write for signal density and operational relevance.
-
-Output format (exact markdown heading order):
-## CURRENT PICTURE
-### Topline
-### Operational picture
-### Political and diplomatic picture
-### What changed this cycle
-### What matters next (12-24h)
-### Confidence and gaps
-
-Style and quality rules:
-- Paragraphs only. No bullets, numbered lists, or table formatting.
-- Minimum specificity: each section must include at least one concrete actor, action, and location/time reference when available.
-- Every material claim must carry inline source tags from this evidence set: [A1], [A2], [B1], [A1F*], [A2F*], [B1F*], [S1..].
-- Treat [A1] and [A2] as highest authority. Use [B1] for emphasis/context only. Use [S*] as deltas unless corroborated by anchors.
-- Do not paraphrase source introductions, project boilerplate, or “data cutoff” notes.
-- Do not use generic filler phrases like “remains highly dynamic,” “complex situation,” or “multiple actors involved” unless tied to concrete evidence.
-- If nothing materially changed, explicitly say what stayed stable and what is still uncertain.
-- Do not invent quantities, locations, units, or motives not present in evidence.
-- Target 180-240 words total with compact, readable paragraphs.
-
-Source map:
-{chr(10).join(source_map_lines)}
-
-Stream deltas since [A1]:
-{delta_lines}
-
-Previous current picture excerpt (continuity only):
-{previous_excerpt}
-"""
         generation_model = "standard"
-        content = await self.llm(
-            prompt,
-            model=generation_model,
-            max_tokens=320,
-            expect_json=False,
-            lane="interactive",
-            background_prompt_char_limit=2600,
-            background_max_tokens_limit=320,
-        )
-        if not str(content).strip():
-            if previous_snapshot is not None:
-                await self.observe_throttled(
-                    "context:current:standard_unavailable",
-                    "decide",
-                    "Current picture refresh skipped; standard model unavailable, retaining previous snapshot",
-                    throttle_seconds=600,
-                )
-                return False
-            generation_model = "fast"
-            await self.observe_throttled(
-                "context:current:fallback_fast_bootstrap",
-                "decide",
-                "Current picture bootstrap using fast fallback",
-                throttle_seconds=600,
+        frame_payload = self._fallback_current_picture_frame(primary_facts, secondary_facts, briefing_facts, stream_deltas)
+        if self.writer_pipeline_v2:
+            frame_prompt = self._render_prompt(
+                "current_picture_frame",
+                {
+                    "current_picture_brief": self.current_picture_brief,
+                    "source_map": "\n".join(source_map_lines),
+                    "delta_lines": delta_lines,
+                    "previous_excerpt": previous_excerpt,
+                },
+            )
+            frame_result = await self.llm(
+                frame_prompt,
+                model=generation_model,
+                max_tokens=320,
+                lane="interactive",
+                temperature=self._temperature_for("current_picture_frame", 0.25),
+                background_prompt_char_limit=2600,
+                background_max_tokens_limit=320,
+            )
+            normalized_frame = self._normalize_current_picture_frame(frame_result)
+            if any(normalized_frame.values()):
+                frame_payload.update({key: value for key, value in normalized_frame.items() if value})
+
+            prose_prompt = self._render_prompt(
+                "current_picture_prose",
+                {
+                    "current_picture_brief": self.current_picture_brief,
+                    "frame_json": json.dumps(frame_payload, ensure_ascii=False, indent=2),
+                },
             )
             content = await self.llm(
-                prompt,
+                prose_prompt,
                 model=generation_model,
-                max_tokens=220,
+                max_tokens=420,
                 expect_json=False,
                 lane="interactive",
-                background_prompt_char_limit=1700,
-                background_max_tokens_limit=220,
+                temperature=self._temperature_for("current_picture_prose", 0.65),
+                background_prompt_char_limit=2600,
+                background_max_tokens_limit=420,
             )
-        if not str(content).strip():
-            return False
-        if not self._has_current_picture_sections(str(content)):
-            compact_retry_prompt = (
-                prompt
-                + "\n\nYour previous draft was cut off. Rewrite tighter in 170-220 words and include all required headings."
-            )
-            retry_content = await self.llm(
-                compact_retry_prompt,
-                model=generation_model,
-                max_tokens=320 if generation_model == "standard" else 220,
-                expect_json=False,
-                lane="interactive",
-                background_prompt_char_limit=2600 if generation_model == "standard" else 1700,
-                background_max_tokens_limit=320 if generation_model == "standard" else 220,
-            )
-            if str(retry_content).strip():
-                content = str(retry_content)
-        if not self._has_current_picture_sections(str(content)):
-            content = self._fallback_current_picture(primary_facts, secondary_facts, briefing_facts, stream_deltas)
-            generation_model = f"{generation_model}_fallback"
-            await self.observe_throttled(
-                "context:current:fallback_template",
-                "decide",
-                "Current picture used deterministic fallback to keep full section coverage",
-                throttle_seconds=600,
-            )
+            if not str(content).strip():
+                content = self._fallback_current_picture(primary_facts, secondary_facts, briefing_facts, stream_deltas)
+                generation_model = f"{generation_model}_fallback"
+            verified_content = self._strip_public_evidence_tags(str(content))
+        else:
+            verified_content = self._fallback_current_picture(primary_facts, secondary_facts, briefing_facts, stream_deltas)
+            generation_model = "legacy_fallback"
 
-        verified_content = str(content).strip()
         verifier_issues: list[str] = []
         verifier_passed = True
         if self.context_verifier_enabled:
-            verifier = await self._verify_current_picture(verified_content, source_docs, stream_deltas)
+            verifier = await self._verify_current_picture(frame_payload, verified_content, source_docs, stream_deltas)
             verifier_passed = bool(verifier.get("passes", False))
             verifier_issues = [str(item) for item in verifier.get("issues", []) if str(item).strip()]
             if not verifier_passed and bool(verifier.get("needs_rewrite", True)):
+                revised_prompt = self._render_prompt(
+                    "current_picture_prose",
+                    {
+                        "current_picture_brief": self.current_picture_brief,
+                        "frame_json": json.dumps(frame_payload, ensure_ascii=False, indent=2),
+                    },
+                )
                 revised_prompt = (
-                    prompt
-                    + "\n\nRevise to fix these verifier issues:\n"
+                    f"{revised_prompt}\n\nVerifier issues:\n"
                     + "\n".join(f"- {issue}" for issue in verifier_issues)
+                    + f"\n\nCurrent draft:\n{verified_content}\n\nRewrite the brief only."
                 )
                 retry_content = await self.llm(
                     revised_prompt,
-                    model=generation_model,
-                    max_tokens=320 if generation_model == "standard" else 220,
+                    model="standard",
+                    max_tokens=420,
                     expect_json=False,
                     lane="interactive",
-                    background_prompt_char_limit=2600 if generation_model == "standard" else 1700,
-                    background_max_tokens_limit=320 if generation_model == "standard" else 220,
+                    temperature=self._temperature_for("current_picture_prose", 0.65),
+                    background_prompt_char_limit=2600,
+                    background_max_tokens_limit=420,
                 )
                 if str(retry_content).strip():
-                    verified_content = str(retry_content).strip()
-                    second = await self._verify_current_picture(verified_content, source_docs, stream_deltas)
+                    verified_content = self._strip_public_evidence_tags(str(retry_content))
+                    second = await self._verify_current_picture(frame_payload, verified_content, source_docs, stream_deltas)
                     verifier_passed = bool(second.get("passes", False))
                     verifier_issues = [str(item) for item in second.get("issues", []) if str(item).strip()]
 
@@ -1722,6 +1960,7 @@ Previous current picture excerpt (continuity only):
 
     async def _verify_current_picture(
         self,
+        frame: dict[str, Any],
         snapshot_text: str,
         source_docs: list[dict],
         stream_deltas: list[dict],
@@ -1735,33 +1974,20 @@ Previous current picture excerpt (continuity only):
             }
             for doc in source_docs[:3]
         ]
-        prompt = f"""Check this CURRENT PICTURE for quality failures.
-
-Snapshot text:
-{snapshot_excerpt}
-
-Source docs summary:
-{json.dumps(source_brief, ensure_ascii=False)}
-
-Stream delta count: {len(stream_deltas)}
-
-Checks:
-1. Over-weighting stream vs anchor docs
-2. Regurgitating recap headlines instead of synthesis
-3. Claims not grounded in provided source docs
-4. Ignoring longer-running context in favor of latest headlines
-5. Generic or layman framing that lacks analyst-grade specificity
-6. Missing concrete entities/timelines/operational detail
-7. Poor readability/clarity (hard to scan as a daily briefing)
-8. Invented quantitative details not present in source docs
-9. Generic filler or boilerplate language that hides concrete meaning
-
-Return JSON:
-{{\"passes\": true, \"issues\": [], \"needs_rewrite\": false}}"""
+        prompt = self._render_prompt(
+            "current_picture_verifier_v2",
+            {
+                "frame_json": json.dumps(frame, ensure_ascii=False, indent=2),
+                "snapshot_text": snapshot_excerpt,
+                "source_brief": json.dumps(source_brief, ensure_ascii=False),
+                "stream_delta_count": len(stream_deltas),
+            },
+        )
         result = await self.llm(
             prompt,
             model="fast",
             max_tokens=180,
+            temperature=self._temperature_for("current_picture_verifier_v2", 0.10),
             lane="background",
         )
         if not isinstance(result, dict):
@@ -1812,11 +2038,11 @@ Return JSON:
             source_docs = input_refs.get("source_docs", [])
             if not isinstance(source_docs, list):
                 source_docs = []
-            selected_prior = prior_posts[: self.pack_max_prior_posts] if prior_posts else []
+            selected_prior = self._prompt_eligible_prior_posts(prior_posts)[: self.pack_max_prior_posts] if prior_posts else []
             if not selected_prior:
                 pack_prior = sections.get("relevant_prior_posts", [])
                 if isinstance(pack_prior, list):
-                    selected_prior = pack_prior[: self.pack_max_prior_posts]
+                    selected_prior = self._prompt_eligible_prior_posts(pack_prior)[: self.pack_max_prior_posts]
             rendered = render_analysis_context(
                 structural_context=structural_context,
                 current_picture=current_picture,
@@ -1835,6 +2061,7 @@ Return JSON:
                 "stream_deltas": stream_deltas if include_stream else [],
                 "source_docs": source_docs,
                 "rendered": rendered,
+                "selected_prior_posts": selected_prior,
                 "current_meta": current_meta,
                 "freshness_meta": freshness_meta,
                 "pack_loaded": True,
@@ -1863,11 +2090,12 @@ Return JSON:
         )
         source_doc_ids = list((current_snapshot or {}).get("source_doc_ids", [])) if current_snapshot else []
         source_docs = self.context_store.get_documents_by_ids(source_doc_ids)
+        filtered_prior_posts = self._prompt_eligible_prior_posts(prior_posts)
         rendered = render_analysis_context(
             structural_context=structural_excerpt,
             current_picture=current_excerpt,
             stream_deltas=stream_deltas,
-            prior_posts=prior_posts,
+            prior_posts=filtered_prior_posts,
         )
         return {
             "focus_text": focus_text,
@@ -1876,6 +2104,7 @@ Return JSON:
             "stream_deltas": stream_deltas,
             "source_docs": source_docs,
             "rendered": rendered,
+            "selected_prior_posts": filtered_prior_posts,
             "current_meta": current_meta,
             "freshness_meta": freshness_meta,
             "pack_loaded": False,
@@ -2257,7 +2486,9 @@ Rules:
         fts = self._fts_query(query)
         rows = self.db.execute(
             """
-            SELECT p.id, p.timestamp, p.title, p.content, p.tags, p.supersedes
+            SELECT p.id, p.timestamp, p.title, p.content, p.tags, p.supersedes,
+                   COALESCE(p.quality_flags, '[]') AS quality_flags,
+                   COALESCE(p.freshness_meta, '{}') AS freshness_meta
             FROM posts p
             JOIN posts_fts f ON p.rowid = f.rowid
             WHERE posts_fts MATCH ?
@@ -2275,6 +2506,8 @@ Rules:
                 "content": row[3],
                 "tags": row[4],
                 "supersedes": row[5],
+                "quality_flags": json.loads(row[6] or "[]"),
+                "freshness_meta": json.loads(row[7] or "{}"),
             }
             for row in rows
         ]
@@ -2284,8 +2517,8 @@ Rules:
             """
             INSERT INTO posts (
                 id, timestamp, title, content, tags, supersedes,
-                evidence_refs, freshness_meta, quality_flags
-            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+                evidence_refs, claim_map_json, freshness_meta, quality_flags
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             """,
             (
                 post.id,
@@ -2295,6 +2528,7 @@ Rules:
                 ",".join(post.tags),
                 post.supersedes,
                 json.dumps(post.evidence_refs, ensure_ascii=False),
+                json.dumps(post.claim_map, ensure_ascii=False),
                 json.dumps(post.freshness_meta, ensure_ascii=False),
                 json.dumps(post.quality_flags, ensure_ascii=False),
             ),
@@ -2624,69 +2858,110 @@ Rules:
         title = ""
         content = ""
         tags: list[str] | str = []
-        verifier_result: dict = {"passes": True, "issues": [], "quality_flags": []}
+        claim_map: list[dict[str, Any]] = []
+        frame: dict[str, Any] = {}
+        verifier_result: dict = {"passes": True, "issues": [], "quality_flags": [], "claim_map": []}
+        prompt_prior_posts = context_bundle.get("selected_prior_posts", prior_posts)
+        if not isinstance(prompt_prior_posts, list):
+            prompt_prior_posts = prior_posts
 
         if stale_status_mode:
             title, content, tags = self._compose_stale_status_post(context, freshness_meta, evidence_ledger)
             context_quality_flags = [*context_quality_flags, "stale_status"]
         else:
-            write_prompt = self._render_prompt(
-                "write_post",
-                {
-                    "voice_prompt": VOICE_PROMPT,
-                    "superseded_note": superseded_note,
-                    "context": str(context)[:1000],
-                    "layered_context": context_bundle["rendered"],
-                    "freshness_contract": json.dumps(freshness_meta, ensure_ascii=False),
-                    "working_theories": theories,
-                    "relevant_prior_posts": [p["timestamp"][:10] + ": " + p["content"][:280] for p in prior_posts],
-                    "evidence_ledger": ledger_text,
-                },
-            )
-            result = await self.llm(
-                write_prompt,
-                model=self._model_for("write_post"),
-                max_tokens=800,
-                lane=lane,
-            )
-
-            title = str((result or {}).get("title", "")).strip() if isinstance(result, dict) else ""
-            content = str((result or {}).get("content", "")).strip() if isinstance(result, dict) else ""
-            tags = result.get("tags", []) if isinstance(result, dict) else []
-
-            if not content:
-                await self.observe_throttled(
-                    "post:write:json_empty_retry",
-                    "decide",
-                    "Post JSON missing content; retrying with plain-text fallback",
-                    throttle_seconds=300,
-                )
-                fallback_prompt = self._render_prompt(
-                    "write_post",
+            if self.writer_pipeline_v2:
+                frame_prompt = self._render_prompt(
+                    "post_frame",
                     {
-                        "voice_prompt": VOICE_PROMPT,
+                        "editorial_brief": self.editorial_brief,
                         "superseded_note": superseded_note,
                         "context": str(context)[:1000],
                         "layered_context": context_bundle["rendered"],
                         "freshness_contract": json.dumps(freshness_meta, ensure_ascii=False),
                         "working_theories": theories,
-                        "relevant_prior_posts": [p["timestamp"][:10] + ": " + p["content"][:220] for p in prior_posts],
+                        "relevant_prior_posts": [p["timestamp"][:10] + ": " + p["content"][:280] for p in prompt_prior_posts],
                         "evidence_ledger": ledger_text,
                     },
                 )
-                fallback_text = await self.llm(
-                    (
-                        f"{fallback_prompt}\n\nWrite one complete post in this exact format:\n"
-                        "TITLE: <single concise title>\nCONTENT:\n<2-4 short paragraphs, no bullets>\n\nDo not return JSON."
-                    ),
+                frame_result = await self.llm(
+                    frame_prompt,
                     model=self._model_for("write_post"),
-                    max_tokens=520,
+                    max_tokens=420,
+                    lane=lane,
+                    temperature=self._temperature_for("post_frame", 0.25),
+                    background_prompt_char_limit=2600,
+                    background_max_tokens_limit=420,
+                )
+                frame = self._normalize_post_frame(frame_result, evidence_ledger)
+                if not frame.get("thesis") and not frame.get("core_claims"):
+                    await self.observe_throttled(
+                        "blocked_ungrounded_claims",
+                        "decide",
+                        "blocked_ungrounded_claims: post frame generation failed",
+                        throttle_seconds=self.contract.observability.blocked_throttle_sec,
+                    )
+                    await self.report_state("idle")
+                    return
+                title = str(frame.get("title", "")).strip()
+                prose_prompt = self._render_prompt(
+                    "post_prose",
+                    {
+                        "editorial_brief": self.editorial_brief,
+                        "frame_json": json.dumps(frame, ensure_ascii=False, indent=2),
+                        "freshness_contract": json.dumps(freshness_meta, ensure_ascii=False),
+                    },
+                )
+                content = await self.llm(
+                    prose_prompt,
+                    model=self._model_for("write_post"),
+                    max_tokens=650,
                     expect_json=False,
                     lane=lane,
+                    temperature=self._temperature_for("post_prose", 0.75),
+                    background_prompt_char_limit=3200,
+                    background_max_tokens_limit=650,
                 )
-                fallback_title, fallback_body = self._parse_title_body(str(fallback_text))
-                title = title or fallback_title
-                content = content or fallback_body
+                content = self._strip_public_evidence_tags(str(content or ""))
+                if not content:
+                    content = self._fallback_post_from_frame(frame)
+            else:
+                write_prompt = self._render_prompt(
+                    "write_post",
+                    {
+                        "editorial_brief": self.editorial_brief,
+                        "superseded_note": superseded_note,
+                        "context": str(context)[:1000],
+                        "layered_context": context_bundle["rendered"],
+                        "freshness_contract": json.dumps(freshness_meta, ensure_ascii=False),
+                        "working_theories": theories,
+                        "relevant_prior_posts": [p["timestamp"][:10] + ": " + p["content"][:280] for p in prompt_prior_posts],
+                        "evidence_ledger": ledger_text,
+                    },
+                )
+                result = await self.llm(
+                    write_prompt,
+                    model=self._model_for("write_post"),
+                    max_tokens=800,
+                    lane=lane,
+                )
+                title = str((result or {}).get("title", "")).strip() if isinstance(result, dict) else ""
+                content = str((result or {}).get("content", "")).strip() if isinstance(result, dict) else ""
+                tags = result.get("tags", []) if isinstance(result, dict) else []
+                legacy_ids = self._extract_evidence_tag_ids(content)
+                frame = self._normalize_post_frame(
+                    {
+                        "title": title,
+                        "thesis": self._compact_text(content.split(".")[0], 220),
+                        "why_now": str(context)[:220],
+                        "core_claims": [{"claim": self._compact_text(content, 220), "evidence_ids": legacy_ids[:3]}],
+                        "supporting_evidence_ids": legacy_ids,
+                        "revision_of_prior": None,
+                        "watchpoint": "",
+                        "confidence": "medium",
+                        "quality_risks": [],
+                    },
+                    evidence_ledger,
+                )
 
         content = str(content or "").strip()
         if len(content) < 40:
@@ -2699,7 +2974,11 @@ Rules:
             await self.report_state("idle")
             return
 
-        style_violations = self._style_violations(content, require_evidence_tags=False)
+        style_violations = self._style_violations(
+            content,
+            require_evidence_tags=False,
+            allow_visible_evidence_tags=stale_status_mode or not self.writer_pipeline_v2,
+        )
         if style_violations and not stale_status_mode:
             await self.observe_throttled(
                 "blocked_ungrounded_claims",
@@ -2716,66 +2995,52 @@ Rules:
             return
 
         evidence_map = {item.get("id"): item for item in evidence_ledger if item.get("id")}
-        evidence_tag_ids = self._extract_evidence_tag_ids(content)
-        evidence_refs = [evidence_map[item_id] for item_id in evidence_tag_ids if item_id in evidence_map]
+        evidence_refs: list[dict[str, Any]] = []
         min_refs = max(1, int(self.contract.publish_policy.min_evidence_refs))
-        if len(evidence_refs) < min_refs:
-            await self.observe_throttled(
-                "blocked_ungrounded_claims",
-                "decide",
-                (
-                    "blocked_ungrounded_claims: post missing required evidence tags [E#], "
-                    f"required={min_refs}, found={len(evidence_refs)}"
-                ),
-                throttle_seconds=self.contract.observability.blocked_throttle_sec,
-            )
-            await self.report_state("idle")
-            return
 
         if not stale_status_mode:
             verifier_result = await self._verify_post_grounding(
                 post_title=title or "(untitled)",
                 post_content=content,
+                frame=frame,
                 evidence_ledger=evidence_ledger,
                 freshness_meta=freshness_meta,
-                context_bundle=context_bundle,
             )
             verifier_passed = bool(verifier_result.get("passes", False))
             verifier_issues = [str(item) for item in verifier_result.get("issues", []) if str(item).strip()]
             if not verifier_passed and bool(verifier_result.get("needs_rewrite", True)):
-                rewrite_prompt = self._render_prompt(
-                    "rewrite_post",
-                    {
-                        "voice_prompt": VOICE_PROMPT,
-                        "issues": "\n".join(f"- {issue}" for issue in verifier_issues),
-                        "draft": content,
-                        "evidence_ledger": ledger_text,
-                        "freshness_contract": json.dumps(freshness_meta, ensure_ascii=False),
-                    },
-                )
-                rewrite = await self.llm(
-                    rewrite_prompt,
-                    model=self._model_for("write_post"),
-                    max_tokens=650,
-                    lane=lane,
-                )
-                if isinstance(rewrite, dict):
-                    title = str(rewrite.get("title", title)).strip() or title
-                    content = str(rewrite.get("content", content)).strip() or content
-                    rewrite_tags = rewrite.get("tags", [])
-                    if rewrite_tags:
-                        tags = rewrite_tags
-                    evidence_tag_ids = self._extract_evidence_tag_ids(content)
-                    evidence_refs = [evidence_map[item_id] for item_id in evidence_tag_ids if item_id in evidence_map]
-                    verifier_result = await self._verify_post_grounding(
-                        post_title=title or "(untitled)",
-                        post_content=content,
-                        evidence_ledger=evidence_ledger,
-                        freshness_meta=freshness_meta,
-                        context_bundle=context_bundle,
+                if self.writer_pipeline_v2:
+                    rewrite_prompt = self._render_prompt(
+                        "post_prose_rewrite",
+                        {
+                            "editorial_brief": self.editorial_brief,
+                            "issues": "\n".join(f"- {issue}" for issue in verifier_issues),
+                            "draft": content,
+                            "frame_json": json.dumps(frame, ensure_ascii=False, indent=2),
+                            "freshness_contract": json.dumps(freshness_meta, ensure_ascii=False),
+                        },
                     )
-                    verifier_passed = bool(verifier_result.get("passes", False))
-                    verifier_issues = [str(item) for item in verifier_result.get("issues", []) if str(item).strip()]
+                    rewrite_text = await self.llm(
+                        rewrite_prompt,
+                        model=self._model_for("write_post"),
+                        max_tokens=650,
+                        expect_json=False,
+                        lane=lane,
+                        temperature=self._temperature_for("post_prose_rewrite", 0.65),
+                        background_prompt_char_limit=3200,
+                        background_max_tokens_limit=650,
+                    )
+                    if str(rewrite_text).strip():
+                        content = self._strip_public_evidence_tags(str(rewrite_text))
+                        verifier_result = await self._verify_post_grounding(
+                            post_title=title or "(untitled)",
+                            post_content=content,
+                            frame=frame,
+                            evidence_ledger=evidence_ledger,
+                            freshness_meta=freshness_meta,
+                        )
+                        verifier_passed = bool(verifier_result.get("passes", False))
+                        verifier_issues = [str(item) for item in verifier_result.get("issues", []) if str(item).strip()]
             if not verifier_result.get("passes", False):
                 await self.observe_throttled(
                     "blocked_ungrounded_claims",
@@ -2788,16 +3053,38 @@ Rules:
                         "decide",
                         "Post verifier issues",
                         detail=json.dumps(verifier_result.get("issues", []), ensure_ascii=False),
-                    )
+                )
                 await self.report_state("idle")
                 return
+            claim_map = self._normalize_claim_map(verifier_result.get("claim_map", []), evidence_ledger, frame)
+            evidence_ids = []
+            for item in claim_map:
+                for evidence_id in item.get("evidence_ids", []):
+                    if evidence_id not in evidence_ids:
+                        evidence_ids.append(evidence_id)
+            evidence_refs = [evidence_map[item_id] for item_id in evidence_ids if item_id in evidence_map]
+            if len(evidence_refs) < min_refs:
+                await self.observe_throttled(
+                    "blocked_ungrounded_claims",
+                    "decide",
+                    (
+                        "blocked_ungrounded_claims: post missing required internal provenance refs, "
+                        f"required={min_refs}, found={len(evidence_refs)}"
+                    ),
+                    throttle_seconds=self.contract.observability.blocked_throttle_sec,
+                )
+                await self.report_state("idle")
+                return
+        else:
+            claim_map = []
+            evidence_refs = evidence_ledger[:1]
 
-        title = self._derive_post_title(title, content, str(context))
+        title = self._derive_post_title(title, content, str(context), thesis=str(frame.get("thesis", "")))
 
         if isinstance(tags, str):
             tags = [t.strip() for t in tags.split(",") if t.strip()]
         if not tags:
-            tags = ["analysis"]
+            tags = self._post_tags_from_context(context, frame if frame else None)
         quality_flags = []
         quality_flags.extend(context_quality_flags)
         verifier_flags_raw = verifier_result.get("quality_flags", []) if isinstance(verifier_result, dict) else []
@@ -2827,6 +3114,7 @@ Rules:
             tags=tags,
             supersedes=supersedes_id,
             evidence_refs=evidence_refs,
+            claim_map=claim_map,
             freshness_meta=freshness_meta_for_post,
             quality_flags=dedup_quality_flags,
         )
@@ -2941,7 +3229,7 @@ Rules:
         theory_rewrite_prompt = self._render_prompt(
             "theory_rewrite",
             {
-                "voice_prompt": VOICE_PROMPT,
+                "editorial_brief": self.editorial_brief,
                 "current_theories": theories,
                 "structural_context": structural_context[:1600],
                 "current_picture": current_picture[:1800],
@@ -2955,6 +3243,7 @@ Rules:
             max_tokens=500,
             expect_json=False,
             lane=lane,
+            temperature=self._temperature_for("theory_rewrite", 0.50),
         )
         if not str(updated).strip():
             return
@@ -2981,6 +3270,7 @@ Rules:
             model=self._model_for("theories_update_check"),
             max_tokens=160,
             lane=lane,
+            temperature=self._temperature_for("theory_verifier", 0.10),
         )
         if not isinstance(verify, dict) or not bool(verify.get("passes")):
             await self.observe_throttled(
@@ -3108,7 +3398,7 @@ Return JSON: {{"sharpens_conflict": bool, "follow_up": "str or null", "reason": 
         await self.report_state("answering", question)
         context_ready = await self.ensure_context_for_query()
 
-        relevant = self.search_posts(question, limit=5)
+        relevant = self._prompt_eligible_prior_posts(self.search_posts(question, limit=5))
         theories = self._theories_text()
         context_bundle = self.build_analysis_context(
             focus_text=question,
@@ -3139,7 +3429,7 @@ Return JSON: {{"sharpens_conflict": bool, "follow_up": "str or null", "reason": 
         query_prompt = self._render_prompt(
             "query_answer",
             {
-                "voice_prompt": VOICE_PROMPT,
+                "editorial_brief": self.editorial_brief,
                 "question": question,
                 "prior_posts": [p["timestamp"][:10] + " - " + p["title"] + ": " + p["content"][:300] for p in relevant],
                 "working_theories": theories,
@@ -3154,6 +3444,7 @@ Return JSON: {{"sharpens_conflict": bool, "follow_up": "str or null", "reason": 
             max_tokens=650,
             expect_json=False,
             lane="interactive",
+            temperature=self._temperature_for("query_answer", 0.60),
         )
 
         await self.redis.publish(

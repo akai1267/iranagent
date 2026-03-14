@@ -36,6 +36,7 @@ class Post(BaseModel):
     tags: list[str]
     supersedes: Optional[str] = None
     evidence_refs: list[dict[str, Any]] = Field(default_factory=list)
+    claim_map: list[dict[str, Any]] = Field(default_factory=list)
     freshness_meta: dict[str, Any] = Field(default_factory=dict)
     quality_flags: list[str] = Field(default_factory=list)
 

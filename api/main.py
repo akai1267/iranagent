@@ -678,6 +678,7 @@ async def get_posts(limit: int = 50, tag: str | None = None):
             """
             SELECT id, timestamp, title, content, tags, supersedes,
                    COALESCE(evidence_refs, '[]') AS evidence_refs,
+                   COALESCE(claim_map_json, '[]') AS claim_map_json,
                    COALESCE(freshness_meta, '{}') AS freshness_meta,
                    COALESCE(quality_flags, '[]') AS quality_flags
             FROM posts
@@ -692,6 +693,7 @@ async def get_posts(limit: int = 50, tag: str | None = None):
             """
             SELECT id, timestamp, title, content, tags, supersedes,
                    COALESCE(evidence_refs, '[]') AS evidence_refs,
+                   COALESCE(claim_map_json, '[]') AS claim_map_json,
                    COALESCE(freshness_meta, '{}') AS freshness_meta,
                    COALESCE(quality_flags, '[]') AS quality_flags
             FROM posts
@@ -711,8 +713,9 @@ async def get_posts(limit: int = 50, tag: str | None = None):
             "tags": row[4] or "",
             "supersedes": row[5],
             "evidence_refs": _safe_json_loads(row[6], []),
-            "freshness_meta": _safe_json_loads(row[7], {}),
-            "quality_flags": _safe_json_loads(row[8], []),
+            "claim_map": _safe_json_loads(row[7], []),
+            "freshness_meta": _safe_json_loads(row[8], {}),
+            "quality_flags": _safe_json_loads(row[9], []),
         }
         for row in rows
     ]
@@ -725,6 +728,7 @@ async def get_post_evidence(post_id: str):
         """
         SELECT id, timestamp, title,
                COALESCE(evidence_refs, '[]') AS evidence_refs,
+               COALESCE(claim_map_json, '[]') AS claim_map_json,
                COALESCE(freshness_meta, '{}') AS freshness_meta,
                COALESCE(quality_flags, '[]') AS quality_flags
         FROM posts
@@ -741,8 +745,9 @@ async def get_post_evidence(post_id: str):
         "timestamp": row[1],
         "title": row[2],
         "evidence_refs": _safe_json_loads(row[3], []),
-        "freshness_meta": _safe_json_loads(row[4], {}),
-        "quality_flags": _safe_json_loads(row[5], []),
+        "claim_map": _safe_json_loads(row[4], []),
+        "freshness_meta": _safe_json_loads(row[5], {}),
+        "quality_flags": _safe_json_loads(row[6], []),
     }
 
 

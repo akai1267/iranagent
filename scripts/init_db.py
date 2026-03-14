@@ -32,6 +32,7 @@ def init(path: str | None = None) -> str:
             tags TEXT,
             supersedes TEXT,
             evidence_refs TEXT NOT NULL DEFAULT '[]',
+            claim_map_json TEXT NOT NULL DEFAULT '[]',
             freshness_meta TEXT NOT NULL DEFAULT '{}',
             quality_flags TEXT NOT NULL DEFAULT '[]'
         );
@@ -123,11 +124,14 @@ def init(path: str | None = None) -> str:
     columns = {row[1] for row in conn.execute("PRAGMA table_info(posts)").fetchall()}
     if "evidence_refs" not in columns:
         conn.execute("ALTER TABLE posts ADD COLUMN evidence_refs TEXT NOT NULL DEFAULT '[]'")
+    if "claim_map_json" not in columns:
+        conn.execute("ALTER TABLE posts ADD COLUMN claim_map_json TEXT NOT NULL DEFAULT '[]'")
     if "freshness_meta" not in columns:
         conn.execute("ALTER TABLE posts ADD COLUMN freshness_meta TEXT NOT NULL DEFAULT '{}'")
     if "quality_flags" not in columns:
         conn.execute("ALTER TABLE posts ADD COLUMN quality_flags TEXT NOT NULL DEFAULT '[]'")
     conn.execute("UPDATE posts SET evidence_refs='[]' WHERE evidence_refs IS NULL")
+    conn.execute("UPDATE posts SET claim_map_json='[]' WHERE claim_map_json IS NULL")
     conn.execute("UPDATE posts SET freshness_meta='{}' WHERE freshness_meta IS NULL")
     conn.execute("UPDATE posts SET quality_flags='[]' WHERE quality_flags IS NULL")
     conn.commit()

@@ -7,14 +7,14 @@ post_judgment: |
   Anchor documents:
   {{anchor_documents}}
 
-  Contract weights:
-  structural_context={{weight_structural}}, current_picture={{weight_current}}, latest_stream_deltas={{weight_deltas}}, relevant_prior_posts={{weight_priors}}
-
   Worth publishing? Only yes if at least one is true:
   - stream materially changes the current picture
   - stream contradicts the current picture
   - you can draw an implication the briefings did not draw
   - this revises a prior post/theory
+
+  Use this priority order:
+  Structural Context -> Current Picture -> Latest Deltas -> Prior Posts.
 
   Do NOT publish if:
   - it just summarizes CTP/ISW or Iran Monitor recap
@@ -23,13 +23,15 @@ post_judgment: |
 
   Return JSON: {"worth_posting": bool, "reason": "one sentence", "supersedes_id": "post id or null"}
 
-write_post: |
-  {{voice_prompt}}
-  {{superseded_note}}
+post_frame: |
+  {{editorial_brief}}
 
-  Context: {{context}}
+  Build an internal post frame for a compact analyst note.
 
-  Layered context (from briefing pack):
+  Context trigger:
+  {{context}}
+
+  Layered context:
   {{layered_context}}
 
   Freshness contract:
@@ -38,21 +40,119 @@ write_post: |
   Working theories:
   {{working_theories}}
 
-  Relevant prior posts (most recent first):
+  Prompt-eligible prior posts:
   {{relevant_prior_posts}}
 
-  Evidence ledger (use IDs in-line as [E#] for every material claim):
+  Evidence ledger:
   {{evidence_ledger}}
 
-  Weighting order (strict): Structural Context -> Current Picture -> Latest High-Signal Deltas -> Relevant Prior Posts.
-  Never treat raw stream as more authoritative than anchor reporting.
-  Do not repackage recap sources.
-  Do not infer day-of conditions beyond freshness horizon.
+  Return JSON:
+  {
+    "title": "str",
+    "thesis": "str",
+    "why_now": "str",
+    "core_claims": [{"claim": "str", "evidence_ids": ["E1", "E2"]}],
+    "supporting_evidence_ids": ["E1", "E2"],
+    "revision_of_prior": "str or null",
+    "watchpoint": "str",
+    "confidence": "high|medium|low",
+    "quality_risks": ["str"]
+  }
+
+post_prose: |
+  {{editorial_brief}}
+
+  Turn this internal frame into a public analyst note.
+
+  Frame:
+  {{frame_json}}
+
+  Freshness contract:
+  {{freshness_contract}}
+
+  Rules:
+  - Write 3-5 dense paragraphs.
+  - No bullets, headings, JSON, or visible evidence tags.
+  - Lead with the thesis.
+  - Mention concrete actors, actions, places, or timing when the frame supports them.
+  - Make a best-read judgment when warranted, but do not overstate beyond the frame.
+
+  Write the final note only.
+
+post_prose_rewrite: |
+  {{editorial_brief}}
+
+  Rewrite this analyst note to fix the verifier issues.
+
+  Frame:
+  {{frame_json}}
+
+  Freshness contract:
+  {{freshness_contract}}
+
+  Issues:
+  {{issues}}
+
+  Draft:
+  {{draft}}
+
+  Rules:
+  - Keep it in 3-5 dense paragraphs.
+  - No headings, bullets, JSON, or visible evidence tags.
+  - Remove unsupported leaps, vague filler, and recycled framing.
+
+  Write the final revised note only.
+
+post_verifier_v2: |
+  Verify this public analyst note against the internal frame and evidence.
+
+  Frame:
+  {{frame_json}}
+
+  Public note:
+  {{post_content}}
+
+  Freshness:
+  {{freshness}}
+
+  Evidence ledger:
+  {{evidence_ledger}}
+
+  Checks:
+  1. Every material public claim maps back to the frame and evidence IDs
+  2. No unsupported leap beyond evidence
+  3. No stale-context certainty
+  4. No generic filler, boilerplate, or recycled contamination phrasing
+  5. No visible evidence tags in public prose
+
+  Return JSON:
+  {"passes": true, "issues": [], "needs_rewrite": false, "claim_map": [{"claim": "str", "evidence_ids": ["E1"]}], "quality_flags": []}
+
+write_post: |
+  {{editorial_brief}}
+  {{superseded_note}}
+
+  Context: {{context}}
+
+  Layered context:
+  {{layered_context}}
+
+  Freshness contract:
+  {{freshness_contract}}
+
+  Working theories:
+  {{working_theories}}
+
+  Prompt-eligible prior posts:
+  {{relevant_prior_posts}}
+
+  Evidence ledger:
+  {{evidence_ledger}}
 
   Return JSON: {"title": "str", "content": "str", "tags": ["str"]}
 
 rewrite_post: |
-  {{voice_prompt}}
+  {{editorial_brief}}
 
   Rewrite this post to pass strict grounding checks.
   Issues:
@@ -68,7 +168,6 @@ rewrite_post: |
   {{freshness_contract}}
 
   Rules:
-  - Keep every material claim mapped to [E#] tags.
   - Remove unsupported, stale, or boilerplate claims.
   - Do not infer beyond freshness horizon.
 
@@ -120,7 +219,7 @@ theory_update_check: |
   Return JSON: {"update_warranted": bool, "what_changes": "str or null"}
 
 theory_rewrite: |
-  {{voice_prompt}}
+  {{editorial_brief}}
 
   Current working theories:
   {{current_theories}}
@@ -157,7 +256,7 @@ theory_verifier: |
   Return JSON: {"passes": true, "issues": []}
 
 query_answer: |
-  {{voice_prompt}}
+  {{editorial_brief}}
 
   Question: {{question}}
 
@@ -179,6 +278,73 @@ query_answer: |
   {{changed_today_line}}
 
   Answer directly. Cite your own posts. If uncertain, say what is known vs unknown.
+
+current_picture_frame: |
+  {{current_picture_brief}}
+
+  Build an internal current-picture frame for an analyst brief.
+
+  Source map:
+  {{source_map}}
+
+  Stream deltas since primary anchor:
+  {{delta_lines}}
+
+  Previous current picture excerpt:
+  {{previous_excerpt}}
+
+  Return JSON:
+  {
+    "topline": "str",
+    "operational_picture": "str",
+    "political_diplomatic_picture": "str",
+    "what_changed": "str",
+    "what_is_continuing": "str",
+    "watchpoints_12_24h": "str",
+    "gaps": "str",
+    "source_use": "str"
+  }
+
+current_picture_prose: |
+  {{current_picture_brief}}
+
+  Turn this internal frame into a compact analyst brief.
+
+  Frame:
+  {{frame_json}}
+
+  Rules:
+  - Write 4-5 compact paragraphs.
+  - No bullets, headings, or numbered sections.
+  - Keep it analyst-facing, not introductory.
+  - Stream deltas belong as deltas, not the main frame.
+  - Be specific about actors, actions, timelines, and operational meaning when the frame supports them.
+
+  Write the final brief only.
+
+current_picture_verifier_v2: |
+  Verify this current-picture analyst brief.
+
+  Frame:
+  {{frame_json}}
+
+  Brief:
+  {{snapshot_text}}
+
+  Source docs summary:
+  {{source_brief}}
+
+  Stream delta count: {{stream_delta_count}}
+
+  Checks:
+  1. Analyst specificity rather than lay framing
+  2. Source hierarchy respected
+  3. No recap intro boilerplate or generic filler
+  4. No invented detail or unsupported precision
+  5. Stream treated as delta layer rather than anchor
+
+  Return JSON:
+  {"passes": true, "issues": [], "needs_rewrite": false}
 
 stream_assessment: |
   Recent stream entries:
