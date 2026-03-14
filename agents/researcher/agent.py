@@ -19,7 +19,7 @@ from shared.schemas import AgentMessage
 
 logger = logging.getLogger(__name__)
 
-PIPELINE_VERSION = "current-picture-v4"
+PIPELINE_VERSION = "current-picture-v5"
 UI_CURRENT_PICTURE_STYLE_PROMPT_DEFAULT = (
     "do phd level analysis n draw insights. write in fluffy paragraphs but not formal, "
     "like how u would say to a friend"
@@ -43,6 +43,12 @@ GENERIC_MAIN_SHIFT_MARKERS = (
     "strategic landscape",
     "regional instability",
     "escalating conflict between iran and its adversaries",
+)
+GENERIC_LENS_MARKERS = (
+    "regional instability",
+    "military capabilities",
+    "multiple countries involved",
+    "high risk of escalation",
 )
 
 
@@ -412,6 +418,12 @@ class ResearcherAgent(BaseAgent):
             main_shift = self._shorten(self._fallback_main_shift_from_fact_pack(fact_pack), 180)
 
         fallback_lenses = self._fallback_lenses_from_fact_pack(fact_pack)
+        if core_lenses and len(core_lenses) == 1:
+            label = str(core_lenses[0].get("label") or "").strip().lower()
+            claim = str(core_lenses[0].get("claim") or "").strip().lower()
+            if any(marker in label or marker in claim for marker in GENERIC_LENS_MARKERS):
+                core_lenses = []
+
         if not core_lenses:
             core_lenses = fallback_lenses
         else:
@@ -452,8 +464,20 @@ class ResearcherAgent(BaseAgent):
         return "\n".join(lines)
 
     def _compact_evidence_block(self, fact_pack: FactPack) -> str:
+        bucket_priority = {
+            "regional_cost_surface": 0,
+            "commerce_and_shipping": 1,
+            "endurance_and_attrition": 2,
+            "regime_governability": 3,
+            "diplomatic_pressure": 4,
+            "battlefield_attrition": 5,
+        }
+        ordered_events = sorted(
+            fact_pack.selected_events,
+            key=lambda event: (bucket_priority.get(event.bucket, 99), -int(event.impact)),
+        )
         lines = []
-        for event in fact_pack.selected_events[:4]:
+        for event in ordered_events[:4]:
             lines.append(
                 f"{event.evidence_id} [{event.bucket}] "
                 f"{self._shorten(event.title, 54)} | {self._shorten(event.summary, 62)}"
