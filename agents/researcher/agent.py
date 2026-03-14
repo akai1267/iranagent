@@ -434,21 +434,26 @@ class ResearcherAgent(BaseAgent):
         return "\n".join(lines)
 
     def _build_prose_prompt(self, frame: dict, fact_pack: FactPack, issues: list[str] | None = None) -> str:
-        task_line = "Write a current picture note from this frame and evidence. 5-8 dense paragraphs. No bullets."
-        rewrite_line = ""
-        if issues:
-            rewrite_line = "Fix these issues: " + "; ".join(self._shorten(item, 90) for item in issues[:6])
-        prompt_parts = [
-            "CURRENT PICTURE EVIDENCE PACK",
-            self._compact_frame_block(frame),
-            self._compact_evidence_block(fact_pack),
-            "TASK",
-            task_line,
-            "Paragraph 1 must state the main strategic shift immediately.",
+        task_parts = [
+            "Write the final current picture note from the frame and evidence below.",
+            "Open with the main strategic shift in sentence one.",
+            "Write only 5-8 dense paragraphs.",
+            "Do not use bullets, numbered lists, section headings, or labels like Main Shift or Core Lenses.",
+            "Do not say you are summarizing a collection of articles or a dashboard.",
+            self.ui_current_picture_style_prompt,
         ]
-        if rewrite_line:
-            prompt_parts.append(rewrite_line)
-        prompt_parts.append(self.ui_current_picture_style_prompt)
+        if issues:
+            task_parts.append(
+                "Fix these issues: " + "; ".join(self._shorten(item, 90) for item in issues[:6])
+            )
+        prompt_parts = [
+            "TASK",
+            "\n".join(task_parts),
+            "FRAME",
+            self._compact_frame_block(frame),
+            "EVIDENCE",
+            self._compact_evidence_block(fact_pack),
+        ]
         return "\n\n".join(part for part in prompt_parts if part).strip()
 
     def _heuristic_verifier_issues(self, content: str) -> list[str]:
@@ -462,10 +467,23 @@ class ResearcherAgent(BaseAgent):
         for phrase in GENERIC_TRANSITIONS:
             if phrase in lower:
                 issues.append(f"generic transition present: {phrase}")
+        if "here's a summary" in lower or "summary of the information" in lower:
+            issues.append("output reads like a pack summary instead of a thesis note")
+        if "collection of news articles" in lower or "reports related to" in lower:
+            issues.append("output frames the source pack instead of the strategic picture")
         if "bbc فارسی" in lower or "bbc persian" in lower or "leading the pack" in lower:
             issues.append("source-count or outlet-ranking filler leaked into final note")
         if "20526d ago" in lower:
             issues.append("corrupt headline-age material leaked into final note")
+        if "**main shift:**" in lower or "**core lenses:**" in lower:
+            issues.append("section-heading formatting leaked into final note")
+        if re.search(r"(?m)^\s*\d+\.\s", content):
+            issues.append("numbered list leaked into final note")
+        if re.search(r"(?m)^\s*[-*]\s", content):
+            issues.append("bullet formatting leaked into final note")
+        paragraphs = [item.strip() for item in re.split(r"\n\s*\n", content.strip()) if item.strip()]
+        if len(paragraphs) < 4:
+            issues.append("output is not written as a full multi-paragraph note")
         if not re.search(r"[.!?\"')\]]\s*$", content.strip()):
             issues.append("output ends on an incomplete sentence")
         return issues
@@ -505,7 +523,7 @@ class ResearcherAgent(BaseAgent):
             temperature=0.65,
             expect_json=False,
             lane="background",
-            background_prompt_char_limit=1200,
+            background_prompt_char_limit=max(2600, self.ui_current_picture_fact_pack_char_limit + 400),
             background_max_tokens_limit=self.ui_current_picture_prose_max_tokens,
         )
         return self._trim_incomplete_tail(str(generated or "").strip())
@@ -586,16 +604,23 @@ class ResearcherAgent(BaseAgent):
         existing_snapshot = await asyncio.to_thread(self._load_latest_snapshot, "ui_current_picture")
         existing_age = await asyncio.to_thread(self._snapshot_age_seconds, "ui_current_picture")
         previous_fact_pack_hash = await self.get_agent_state(self.ui_current_picture_last_prompt_hash_state_key, default="")
+        existing_pipeline_version = ""
         if not previous_fact_pack_hash and isinstance(existing_snapshot, dict):
             existing_meta = existing_snapshot.get("meta", {})
             if isinstance(existing_meta, dict):
                 previous_fact_pack_hash = str(
                     existing_meta.get("fact_pack_hash") or existing_meta.get("prompt_hash") or ""
                 )
+                existing_pipeline_version = str(existing_meta.get("pipeline_version") or "")
+        elif isinstance(existing_snapshot, dict):
+            existing_meta = existing_snapshot.get("meta", {})
+            if isinstance(existing_meta, dict):
+                existing_pipeline_version = str(existing_meta.get("pipeline_version") or "")
 
         if (
             existing_snapshot is not None
             and previous_fact_pack_hash == fact_pack.fact_pack_hash
+            and existing_pipeline_version == PIPELINE_VERSION
             and existing_age is not None
             and existing_age < self.ui_current_picture_interval_sec
         ):
