@@ -19,7 +19,7 @@ from shared.schemas import AgentMessage
 
 logger = logging.getLogger(__name__)
 
-PIPELINE_VERSION = "current-picture-v3"
+PIPELINE_VERSION = "current-picture-v4"
 UI_CURRENT_PICTURE_STYLE_PROMPT_DEFAULT = (
     "do phd level analysis n draw insights. write in fluffy paragraphs but not formal, "
     "like how u would say to a friend"
