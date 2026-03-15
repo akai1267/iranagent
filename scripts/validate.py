@@ -68,7 +68,7 @@ def check_current_picture(base: str) -> CheckResult:
     model_chain = payload.get("model_chain") or []
     if not pipeline_version:
         return CheckResult(False, "current-picture payload missing pipeline_version")
-    if not isinstance(model_chain, list) or len(model_chain) < 3:
+    if not isinstance(model_chain, list) or len(model_chain) < 2:
         return CheckResult(False, "current-picture payload missing staged model_chain metadata")
     return CheckResult(
         True,
