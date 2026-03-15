@@ -19,25 +19,13 @@ from shared.schemas import AgentMessage
 
 logger = logging.getLogger(__name__)
 
-PIPELINE_VERSION = "current-picture-v6"
+PIPELINE_VERSION = "current-picture-v7"
 UI_CURRENT_PICTURE_STYLE_PROMPT_DEFAULT = (
     "do phd level analysis n draw insights. write in fluffy paragraphs but not formal, "
     "like how u would say to a friend"
 )
 UI_CURRENT_PICTURE_ALLOWED_MODELS = {"fast", "standard", "deep"}
 
-STABLE_LEAD_PATTERNS = (
-    "news volume is stable",
-    "social media activity is stable",
-    "top sources",
-    "leading the pack",
-)
-GENERIC_TRANSITIONS = (
-    "now, let's talk about",
-    "let's take a closer look",
-    "moving on to",
-    "first off",
-)
 GENERIC_MAIN_SHIFT_MARKERS = (
     "multiple high-impact events",
     "strategic landscape",
@@ -83,14 +71,12 @@ class ResearcherAgent(BaseAgent):
             "standard",
             fallback=legacy_model,
         )
-        self.ui_current_picture_verify_model = self._pick_model("UI_CURRENT_PICTURE_VERIFY_MODEL", "fast")
         self.ui_current_picture_frame_max_tokens = self._pick_tokens("UI_CURRENT_PICTURE_FRAME_MAX_TOKENS", 220)
         self.ui_current_picture_prose_max_tokens = self._pick_tokens(
             "UI_CURRENT_PICTURE_PROSE_MAX_TOKENS",
             550,
             fallback=legacy_tokens,
         )
-        self.ui_current_picture_verify_max_tokens = self._pick_tokens("UI_CURRENT_PICTURE_VERIFY_MAX_TOKENS", 140)
 
         self.ui_current_picture_last_attempt_state_key = "ui_current_picture:last_attempt_at"
         self.ui_current_picture_last_success_state_key = "ui_current_picture:last_success_at"
@@ -496,52 +482,6 @@ class ResearcherAgent(BaseAgent):
             if part
         ).strip()
 
-    def _heuristic_verifier_issues(self, content: str) -> list[str]:
-        issues: list[str] = []
-        clean = re.sub(r"\s+", " ", content.strip())
-        lead = clean[:260].lower()
-        for pattern in STABLE_LEAD_PATTERNS:
-            if pattern in lead:
-                issues.append(f"lead opens with weak dashboard framing: {pattern}")
-        lower = clean.lower()
-        for phrase in GENERIC_TRANSITIONS:
-            if phrase in lower:
-                issues.append(f"generic transition present: {phrase}")
-        if "here's a summary" in lower or "summary of the information" in lower:
-            issues.append("output reads like a pack summary instead of a thesis note")
-        if "collection of news articles" in lower or "reports related to" in lower:
-            issues.append("output frames the source pack instead of the strategic picture")
-        if "bbc فارسی" in lower or "bbc persian" in lower or "leading the pack" in lower:
-            issues.append("source-count or outlet-ranking filler leaked into final note")
-        if "20526d ago" in lower:
-            issues.append("corrupt headline-age material leaked into final note")
-        if "**main shift:**" in lower or "**core lenses:**" in lower:
-            issues.append("section-heading formatting leaked into final note")
-        if re.search(r"(?m)^\s*\d+\.\s", content):
-            issues.append("numbered list leaked into final note")
-        if re.search(r"(?m)^\s*[-*]\s", content):
-            issues.append("bullet formatting leaked into final note")
-        paragraphs = [item.strip() for item in re.split(r"\n\s*\n", content.strip()) if item.strip()]
-        if len(paragraphs) < 4:
-            issues.append("output is not written as a full multi-paragraph note")
-        if not re.search(r"[.!?\"')\]]\s*$", content.strip()):
-            issues.append("output ends on an incomplete sentence")
-        return issues
-
-    def _build_verifier_prompt(self, frame: dict, fact_pack: FactPack, content: str, heuristic_issues: list[str]) -> str:
-        hints = "; ".join(heuristic_issues) if heuristic_issues else "none"
-        return (
-            "Verify this current picture note.\n"
-            "Return JSON with keys: passes, issues, needs_rewrite.\n"
-            "Reject if the note is recap-style, source-count-driven, weakly analytical, or cut off.\n"
-            "Reject if paragraph 1 does not state the main shift.\n"
-            "Reject if major paragraphs do not map back to frame claims.\n\n"
-            f"FRAME\n{self._compact_frame_block(frame)}\n\n"
-            f"QUALITY_FLAGS\n{', '.join(fact_pack.quality_flags) if fact_pack.quality_flags else 'none'}\n\n"
-            f"HEURISTIC_ISSUES\n{hints}\n\n"
-            f"NOTE\n{content}"
-        )
-
     async def _generate_frame(self, fact_pack: FactPack) -> dict | None:
         raw_frame = await self.llm(
             self._build_frame_prompt(fact_pack),
@@ -573,49 +513,15 @@ class ResearcherAgent(BaseAgent):
         )
         return self._trim_incomplete_tail(str(generated or "").strip())
 
-    async def _verify_prose(self, frame: dict, fact_pack: FactPack, content: str) -> tuple[bool, list[str]]:
-        heuristic_issues = self._heuristic_verifier_issues(content)
-        verifier = await self.llm(
-            self._build_verifier_prompt(frame, fact_pack, content, heuristic_issues),
-            model=self.ui_current_picture_verify_model,
-            max_tokens=self.ui_current_picture_verify_max_tokens,
-            temperature=0.1,
-            expect_json=True,
-            lane="background",
-            background_prompt_char_limit=2600,
-            background_max_tokens_limit=self.ui_current_picture_verify_max_tokens,
-        )
-        issues = list(heuristic_issues)
-        if isinstance(verifier, dict):
-            raw_issues = verifier.get("issues")
-            if isinstance(raw_issues, list):
-                issues.extend(str(item).strip() for item in raw_issues if str(item).strip())
-            passes = bool(verifier.get("passes")) and not issues
-            needs_rewrite = bool(verifier.get("needs_rewrite")) or bool(issues)
-            return passes and not needs_rewrite, issues
-        return False, issues or ["verifier returned invalid payload"]
-
-    async def _generate_verified_note(self, fact_pack: FactPack) -> tuple[str | None, list[str]]:
+    async def _generate_note(self, fact_pack: FactPack) -> str | None:
         frame = await self._generate_frame(fact_pack)
         if frame is None:
-            return None, ["frame_generation_failed"]
+            return None
 
         content = await self._write_prose(frame, fact_pack)
         if not content:
-            return None, ["prose_generation_empty"]
-
-        passes, issues = await self._verify_prose(frame, fact_pack, content)
-        if passes:
-            return content, []
-
-        rewrite = await self._write_prose(frame, fact_pack, issues=issues)
-        if not rewrite:
-            return None, issues or ["rewrite_generation_empty"]
-
-        passes, rewrite_issues = await self._verify_prose(frame, fact_pack, rewrite)
-        if passes:
-            return rewrite, ["rewritten_after_verify"]
-        return None, rewrite_issues or issues or ["verification_failed"]
+            return None
+        return content
 
     async def refresh_ui_current_picture_once(self, reason: str = "manual") -> bool:
         if not self.ui_current_picture_enabled:
@@ -678,9 +584,9 @@ class ResearcherAgent(BaseAgent):
             )
             return False
 
-        note, generation_flags = await self._generate_verified_note(fact_pack)
+        note = await self._generate_note(fact_pack)
         if not note:
-            error_msg = "UI current picture verification failed"
+            error_msg = "UI current picture generation failed"
             await self.set_agent_state(self.ui_current_picture_last_error_state_key, error_msg)
             await self.observe_throttled(
                 "ui_current_picture:refresh_failed",
@@ -691,7 +597,6 @@ class ResearcherAgent(BaseAgent):
             return False
 
         source_generated_at = self._parse_source_generated_at(source_prompt)
-        quality_flags = sorted(set(list(fact_pack.quality_flags) + generation_flags))
         meta = {
             "source_url": self.ui_current_picture_source_url,
             "source_generated_at": source_generated_at,
@@ -699,11 +604,10 @@ class ResearcherAgent(BaseAgent):
             "model_chain": [
                 self.ui_current_picture_frame_model,
                 self.ui_current_picture_prose_model,
-                self.ui_current_picture_verify_model,
             ],
             "pipeline_version": PIPELINE_VERSION,
             "fact_pack_hash": fact_pack.fact_pack_hash,
-            "quality_flags": quality_flags,
+            "quality_flags": sorted(set(list(fact_pack.quality_flags))),
             "refresh_reason": reason,
         }
         changed = await asyncio.to_thread(
