@@ -1,40 +1,68 @@
-# Iran War Monitor AI Agentic Analyst
+# GTM Leads Research Analyst
 
-This repository is now a minimal app with two tabs only:
+This repository now ships a frontend-first demo for a GTM lead-research product.
 
-- `CURRENT PICTURE`
+The live UI has two tabs:
+
+- `INTEL`
 - `ABOUT`
 
-`CURRENT PICTURE` is generated from IranMonitor prompt export data and refreshed on a schedule.
+The `INTEL` tab is a split-pane operator surface:
+
+- left: a concise executive read for the last 7 days
+- right: a deeper research workspace with active questions, opportunity patterns, watched accounts, and Clay CSV export
+
+The demo is intentionally mock-backed. It does not require a live backend intelligence pipeline to render.
+
+## Product Shape
+
+The frontend is designed to show what an AI-assisted GTM research console could feel like before live crawling, scoring, or CRM sync exists.
+
+Key characteristics:
+
+- warm editorial UI instead of generic dashboard chrome
+- local mock snapshot as the data source
+- account-level Clay export generated client-side
+- no dependency on `/current-picture/latest` or other backend endpoints for the main demo flow
 
 ## Runtime Scope
 
-Only the components required for current-picture generation are run in production:
+The repo still contains the minimal backend runtime from the prior app:
 
-- `researcher` (for scheduled generation)
-- `api` (for serving endpoints + frontend)
+- `researcher`
+- `api`
 
-The startup script no longer launches monitor/orchestrator/source-monitor processes.
+That backend remains deployable, but the GTM demo frontend is self-contained and does not rely on it for the `INTEL` tab.
 
-## How Current Picture Works
+## Demo Data Model
 
-1. Fetch source payload from `https://www.iranmonitor.org/api/export-prompt`
-2. Build a deterministic fact pack from the full export, prioritizing key events and suppressing noisy dashboard sections
-3. Run a staged Groq pipeline: `fast` frame -> `standard` prose
-4. Persist snapshot in SQLite (`/memory/posts.db`, `context_snapshots` as `ui_current_picture`)
-5. Frontend polls `GET /current-picture/latest`
+The demo is driven by a local snapshot object in:
 
-Generation is guarded against abrupt cutoffs by trimming incomplete trailing fragments when a response hits token limits.
-The prose-stage style prompt is preserved; quality improvements come from input selection rather than rewriting the user-facing tone prompt.
+- [frontend/src/data/gtmIntelMock.js](/Users/arham/iranagent/frontend/src/data/gtmIntelMock.js)
 
-## Endpoints Used by UI
+That snapshot powers:
 
-- `GET /current-picture/latest`
-- `GET /health`
+- the executive summary
+- the research workspace
+- the watched accounts module
+- the Clay CSV export
 
-Deprecated for this UI flow:
+Docs for the demo contract live in:
 
-- `GET /context/current-picture` returns `410`
+- [docs/gtm-leads-prd.md](/Users/arham/iranagent/docs/gtm-leads-prd.md)
+- [docs/gtm-leads-ux-spec.md](/Users/arham/iranagent/docs/gtm-leads-ux-spec.md)
+- [docs/gtm-leads-mock-data-schema.md](/Users/arham/iranagent/docs/gtm-leads-mock-data-schema.md)
+- [docs/gtm-leads-clay-export-spec.md](/Users/arham/iranagent/docs/gtm-leads-clay-export-spec.md)
+
+## Clay Export
+
+The `Export Clay CSV` button downloads a client-side CSV with one row per company.
+
+It is intended as:
+
+- a Clay-ready base table for enrichment
+- an account-level export, not a contact list
+- a bridge between research and downstream outbound workflow
 
 ## Local Run
 
@@ -42,7 +70,7 @@ Deprecated for this UI flow:
 
 - Python 3.11+
 - Node 20+
-- Redis
+- Redis if you also want the backend running
 
 ### Install
 
@@ -65,6 +93,14 @@ Copy `.env.example` to `.env` and set:
 ```
 
 App/API default: `http://localhost:8000`
+
+For frontend-only work:
+
+```bash
+cd frontend
+npm ci
+npm run dev
+```
 
 ## Deployment
 

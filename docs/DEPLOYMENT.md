@@ -1,15 +1,34 @@
 # Deployment Guide
 
-This project deploys a minimal current-picture app to Railway.
+This project deploys a backend service to Railway that also serves the built frontend bundle.
 
-## Services
+The current frontend product surface is the GTM demo:
 
-Run only:
+- `INTEL`
+- `ABOUT`
+
+## What Is Actually Deployed
+
+The deployed container still starts:
 
 - `researcher`
 - `api`
 
-`start_all.sh` already reflects this runtime scope.
+The GTM demo frontend itself is mock-backed and does not depend on live API data for the main `INTEL` experience. The backend remains present because it is already the production serving path for the frontend bundle.
+
+## Services
+
+Runtime entrypoint:
+
+- [start_all.sh](/Users/arham/iranagent/start_all.sh)
+
+Container build path:
+
+- [Dockerfile](/Users/arham/iranagent/Dockerfile)
+
+Railway deploy workflow:
+
+- [.github/workflows/deploy-railway-backend.yml](/Users/arham/iranagent/.github/workflows/deploy-railway-backend.yml)
 
 ## Required Infrastructure
 
@@ -19,20 +38,12 @@ Run only:
 
 ## Required Environment Variables
 
+The legacy backend runtime still expects:
+
 - `GROQ_API_KEY` or `GROQ_API_KEYS`
 - `REDIS_URL`
-- `UI_CURRENT_PICTURE_ENABLED=true`
-- `UI_CURRENT_PICTURE_INTERVAL_SEC=10800`
-- `UI_CURRENT_PICTURE_SOURCE_URL=https://www.iranmonitor.org/api/export-prompt`
-- `UI_CURRENT_PICTURE_STYLE_PROMPT=do phd level analysis n draw insights. write in fluffy paragraphs but not formal, like how u would say to a friend`
 
-Recommended free-tier safe values:
-
-- `UI_CURRENT_PICTURE_FRAME_MODEL=fast`
-- `UI_CURRENT_PICTURE_PROSE_MODEL=standard`
-- `UI_CURRENT_PICTURE_FRAME_MAX_TOKENS=220`
-- `UI_CURRENT_PICTURE_PROSE_MAX_TOKENS=550`
-- `UI_CURRENT_PICTURE_PROMPT_CHAR_LIMIT=2800`
+If you still want the background researcher features active, keep the current-picture-related env vars configured as well. They are no longer required for the GTM demo UI itself, but they are still relevant to the existing backend process.
 
 For GitHub Actions deploy:
 
@@ -41,17 +52,21 @@ For GitHub Actions deploy:
 ## Deploy Flow
 
 1. Push to `main`
-2. GitHub Actions workflow deploys backend to Railway
-3. Wait for Railway deployment status `SUCCESS`
+2. GitHub Actions deploys the backend service to Railway
+3. Railway builds the frontend bundle inside the Docker image
+4. The FastAPI service serves the compiled frontend assets
+5. Wait for deployment status `SUCCESS`
 
 ## Post-Deploy Verification
 
-1. `GET /health` returns `200` and `researcher: ok`
-2. `GET /current-picture/latest` returns:
-   - `404` warmup on first boot until first generation, then
-   - `200` with `generated_at`, `content`, `stale`
-3. `GET /context/current-picture` returns `410` (deprecated route)
-4. Frontend shows only `CURRENT PICTURE` and `ABOUT` tabs
+1. Open the production app root and confirm the header says `GTM Leads Research Analyst`
+2. Confirm the top-level tabs are `INTEL` and `ABOUT`
+3. Confirm the `INTEL` tab renders:
+   - executive read on the left
+   - research workspace on the right
+   - `Export Clay CSV` button in the workspace header
+4. Confirm `Export Clay CSV` downloads a file named like `gtm-leads-clay-export-YYYY-MM-DD.csv`
+5. Confirm `GET /health` still returns `200`
 
 ## Security Notes
 
