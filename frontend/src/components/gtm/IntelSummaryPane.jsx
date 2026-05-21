@@ -41,6 +41,7 @@ export default function IntelSummaryPane({ snapshot, loading, error }) {
         </div>
         <div className="pane-header-meta">
           <span className="timestamp">Updated {formatDateTime(snapshot.generatedAt)}</span>
+          <span className="timestamp">{snapshot.refreshCadenceLabel}</span>
           <span className="tag tag-neutral">{snapshot.icpLabel}</span>
         </div>
       </header>
@@ -60,6 +61,19 @@ export default function IntelSummaryPane({ snapshot, loading, error }) {
           </span>
         ))}
       </div>
+
+      {snapshot.executiveRead.sinceLastPass?.length ? (
+        <section className="card shifts-card">
+          <div className="overline">SINCE LAST PASS</div>
+          <ul className="drivers-list">
+            {snapshot.executiveRead.sinceLastPass.map((item) => (
+              <li key={item.label}>
+                <strong>{item.label}:</strong> {item.note}
+              </li>
+            ))}
+          </ul>
+        </section>
+      ) : null}
 
       <article className="current-picture-body card intel-summary-body">
         <ReactMarkdown>{snapshot.executiveRead.markdown}</ReactMarkdown>

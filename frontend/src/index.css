@@ -326,7 +326,8 @@ strong {
 
 .workspace-card-copy,
 .workspace-card-meta,
-.account-watch-rationale {
+.account-watch-rationale,
+.account-watch-why-now {
   margin: 8px 0 0;
   color: var(--text-2);
 }
@@ -402,6 +403,13 @@ strong {
 
 .account-watch-divider {
   color: #a59b8e;
+}
+
+.account-watch-meta {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-top: 10px;
 }
 
 .workspace-lower-grid {

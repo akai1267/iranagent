@@ -13,7 +13,7 @@ export default function Header() {
       <div className="wordmark">GTM Leads Research Analyst</div>
       <div className="header-meta">
         <span className="timestamp">DEMO</span>
-        <span className="timestamp">Past 7 days</span>
+        <span className="timestamp">Daily view</span>
         <span className="timestamp">Vol. I · {formatDate()}</span>
       </div>
     </header>

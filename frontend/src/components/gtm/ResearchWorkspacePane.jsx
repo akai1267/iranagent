@@ -3,6 +3,17 @@ import AccountWatchRow from './AccountWatchRow'
 import PatternCard from './PatternCard'
 import QuestionCard from './QuestionCard'
 
+function moveClass(direction) {
+  const normalized = String(direction || '').toLowerCase()
+  if (normalized === 'up') {
+    return 'status-chip status-chip-active'
+  }
+  if (normalized === 'new') {
+    return 'status-chip status-chip-verifying'
+  }
+  return 'status-chip status-chip-watch'
+}
+
 export default function ResearchWorkspacePane({ snapshot, loading, error }) {
   if (loading) {
     return (
@@ -41,10 +52,29 @@ export default function ResearchWorkspacePane({ snapshot, loading, error }) {
             Export Clay CSV
           </button>
           <p className="export-helper">
-            {exportDisabled ? 'No exportable accounts in this snapshot' : 'Account-level base table for enrichment'}
+            {exportDisabled ? 'No exportable accounts in this snapshot' : 'Daily account base table for enrichment'}
           </p>
         </div>
       </header>
+
+      {snapshot.workspace.movements?.length ? (
+        <section className="workspace-section">
+          <div className="section-header">
+            <div className="overline">WHAT MOVED THIS PASS</div>
+          </div>
+          <div className="workspace-stack">
+            {snapshot.workspace.movements.map((movement) => (
+              <article key={movement.id} className="workspace-card movement-card">
+                <div className="workspace-card-header">
+                  <h3 className="workspace-card-title">{movement.account}</h3>
+                  <span className={moveClass(movement.direction)}>{movement.direction}</span>
+                </div>
+                <p className="workspace-card-copy">{movement.detail}</p>
+              </article>
+            ))}
+          </div>
+        </section>
+      ) : null}
 
       <section className="workspace-section">
         <div className="section-header">

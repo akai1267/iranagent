@@ -25,6 +25,13 @@ export default function AccountWatchRow({ account }) {
           <span>{account.employeeBand}</span>
         </div>
         <p className="account-watch-rationale">{account.rationale}</p>
+        <p className="account-watch-why-now">
+          <strong>Why now:</strong> {account.whyNow}
+        </p>
+        <div className="account-watch-meta">
+          <span className="signal-chip">Confidence: {String(account.confidence).toUpperCase()}</span>
+          <span className="signal-chip">Signals: {account.signalCount}</span>
+        </div>
       </div>
     </article>
   )
