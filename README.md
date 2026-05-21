@@ -38,7 +38,7 @@ That backend remains deployable, but the GTM demo frontend is self-contained and
 
 The demo is driven by a local snapshot object in:
 
-- [frontend/src/data/gtmIntelMock.js](/Users/arham/iranagent/frontend/src/data/gtmIntelMock.js)
+- [frontend/src/data/gtmIntelMock.js](frontend/src/data/gtmIntelMock.js)
 
 That snapshot powers:
 
@@ -49,10 +49,10 @@ That snapshot powers:
 
 Docs for the demo contract live in:
 
-- [docs/gtm-leads-prd.md](/Users/arham/iranagent/docs/gtm-leads-prd.md)
-- [docs/gtm-leads-ux-spec.md](/Users/arham/iranagent/docs/gtm-leads-ux-spec.md)
-- [docs/gtm-leads-mock-data-schema.md](/Users/arham/iranagent/docs/gtm-leads-mock-data-schema.md)
-- [docs/gtm-leads-clay-export-spec.md](/Users/arham/iranagent/docs/gtm-leads-clay-export-spec.md)
+- [docs/gtm-leads-prd.md](docs/gtm-leads-prd.md)
+- [docs/gtm-leads-ux-spec.md](docs/gtm-leads-ux-spec.md)
+- [docs/gtm-leads-mock-data-schema.md](docs/gtm-leads-mock-data-schema.md)
+- [docs/gtm-leads-clay-export-spec.md](docs/gtm-leads-clay-export-spec.md)
 
 ## Clay Export
 
@@ -104,11 +104,17 @@ npm run dev
 
 ## Deployment
 
-Railway deployment doc: [docs/DEPLOYMENT.md](docs/DEPLOYMENT.md)
+Primary static hosting target:
 
-Important secret for CI deploys:
+- GitHub Pages via [.github/workflows/deploy-github-pages.yml](.github/workflows/deploy-github-pages.yml)
 
-- `RAILWAY_API_TOKEN` (not `RAILWAY_TOKEN`)
+Legacy backend hosting target:
+
+- Railway via [docs/DEPLOYMENT.md](docs/DEPLOYMENT.md)
+
+For GitHub Pages, the frontend build automatically uses the repo-name base path on CI, so the public URL for this repo will be:
+
+- `https://akai1267.github.io/iranagent/`
 
 ## Secrets and Public Repo Safety
 
