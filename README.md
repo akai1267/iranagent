@@ -114,7 +114,7 @@ Legacy backend hosting target:
 
 For GitHub Pages, the frontend build automatically uses the repo-name base path on CI, so the public URL for this repo will be:
 
-- `https://akai1267.github.io/iranagent/`
+- `https://akai1267.github.io/gtmdemo/`
 
 ## Secrets and Public Repo Safety
 

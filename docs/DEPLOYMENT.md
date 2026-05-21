@@ -15,7 +15,7 @@ Workflow:
 
 Expected public URL:
 
-- `https://akai1267.github.io/iranagent/`
+- `https://akai1267.github.io/gtmdemo/`
 
 Notes:
 
