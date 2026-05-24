@@ -18,7 +18,7 @@ export default function ResearchWorkspacePane({ snapshot, loading, error }) {
   if (loading) {
     return (
       <section className="right-pane research-workspace-pane">
-        <p className="muted-row">Loading research workspace...</p>
+        <p className="muted-row">Loading account board...</p>
       </section>
     )
   }
@@ -38,8 +38,8 @@ export default function ResearchWorkspacePane({ snapshot, loading, error }) {
     <section className="right-pane research-workspace-pane">
       <header className="workspace-header card">
         <div className="workspace-header-copy">
-          <div className="overline">RESEARCH WORKSPACE</div>
-          <h2 className="pane-title">Questions the model is working through</h2>
+          <div className="overline">ACCOUNT BOARD</div>
+          <h2 className="pane-title">Who to work and why</h2>
           <p className="workspace-intro">{snapshot.workspace.intro}</p>
         </div>
         <div className="workspace-header-actions">
@@ -52,7 +52,7 @@ export default function ResearchWorkspacePane({ snapshot, loading, error }) {
             Export Clay CSV
           </button>
           <p className="export-helper">
-            {exportDisabled ? 'No exportable accounts in this snapshot' : 'Daily account base table for enrichment'}
+            {exportDisabled ? 'No accounts ready to export' : 'One row per company for Clay enrichment'}
           </p>
         </div>
       </header>
@@ -60,7 +60,7 @@ export default function ResearchWorkspacePane({ snapshot, loading, error }) {
       {snapshot.workspace.movements?.length ? (
         <section className="workspace-section">
           <div className="section-header">
-            <div className="overline">WHAT MOVED THIS PASS</div>
+            <div className="overline">QUEUE MOVERS</div>
           </div>
           <div className="workspace-stack">
             {snapshot.workspace.movements.map((movement) => (
@@ -78,7 +78,7 @@ export default function ResearchWorkspacePane({ snapshot, loading, error }) {
 
       <section className="workspace-section">
         <div className="section-header">
-          <div className="overline">CORE QUESTIONS</div>
+          <div className="overline">ACTIVE LANES</div>
         </div>
         <div className="workspace-stack">
           {snapshot.workspace.questions.map((question) => (
@@ -89,7 +89,7 @@ export default function ResearchWorkspacePane({ snapshot, loading, error }) {
 
       <section className="workspace-section">
         <div className="section-header">
-          <div className="overline">EMERGING OPPORTUNITY PATTERNS</div>
+          <div className="overline">PLAY PATTERNS</div>
         </div>
         <div className="pattern-grid">
           {snapshot.workspace.patterns.map((pattern) => (
@@ -100,7 +100,7 @@ export default function ResearchWorkspacePane({ snapshot, loading, error }) {
 
       <section className="workspace-section">
         <div className="section-header">
-          <div className="overline">ACCOUNTS THE MODEL KEEPS CIRCLING</div>
+          <div className="overline">PRIORITY ACCOUNTS</div>
         </div>
         <div className="workspace-card account-watch-list">
           {accounts.map((account) => (
@@ -111,7 +111,7 @@ export default function ResearchWorkspacePane({ snapshot, loading, error }) {
 
       <section className="workspace-lower-grid">
         <article className="workspace-card">
-          <div className="overline">OPEN UNKNOWNS</div>
+          <div className="overline">STILL UNCLEAR</div>
           <ul className="workspace-list">
             {snapshot.workspace.unknowns.map((item) => (
               <li key={item}>{item}</li>
@@ -120,7 +120,7 @@ export default function ResearchWorkspacePane({ snapshot, loading, error }) {
         </article>
 
         <article className="workspace-card">
-          <div className="overline">NEXT RESEARCH MOVES</div>
+          <div className="overline">WATCH NEXT</div>
           <ul className="workspace-list">
             {snapshot.workspace.nextMoves.map((item) => (
               <li key={item}>{item}</li>

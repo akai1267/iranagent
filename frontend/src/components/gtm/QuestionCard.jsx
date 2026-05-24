@@ -9,12 +9,23 @@ function statusClass(status) {
   return 'status-chip status-chip-watch'
 }
 
+function statusLabel(status) {
+  const normalized = String(status || '').toLowerCase()
+  if (normalized === 'active') {
+    return 'HOT'
+  }
+  if (normalized === 'verifying') {
+    return 'CHECKING'
+  }
+  return 'ON RADAR'
+}
+
 export default function QuestionCard({ question }) {
   return (
     <article className="workspace-card question-card">
       <div className="workspace-card-header">
         <h3 className="workspace-card-title">{question.title}</h3>
-        <span className={statusClass(question.status)}>{question.status}</span>
+        <span className={statusClass(question.status)}>{statusLabel(question.status)}</span>
       </div>
       <p className="workspace-card-copy">{question.whyItMatters}</p>
       <div className="signal-chip-row">

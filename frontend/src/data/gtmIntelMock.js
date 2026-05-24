@@ -6,17 +6,17 @@ export const gtmIntelMock = {
   marketTemperature: 'warming',
   sourceCount: 38,
   categoryTags: ['Cross-border expansion', 'ERP change', 'Indirect tax', 'Billing complexity'],
-  refreshCadenceLabel: 'Rebuilt every 3 hours',
+  refreshCadenceLabel: 'Refreshes every 3 hours',
   executiveRead: {
     topline:
       'Since the last pass, **Northline Commerce** and **LedgerLoop** moved into Taxwire\'s top tier because their expansion and systems changes are now sitting directly next to visible tax-ownership gaps, while **ParcelMint** became the clearest executive-quote-led watch after CFO **Elena Park** openly described VAT reconciliation as manual.',
-    markdown: `This morning's board is sharper than yesterday's because the strongest names are no longer just showing generic growth signals. **Northline Commerce** now has a Canada and UK rollout plus a fresh Senior Tax Operations opening in the same cluster, which makes the tax-surface expansion explicit. **LedgerLoop** is in a similar position: it launched a NetSuite connector, widened EMEA billing coverage, and had VP Finance **Melissa Tran** searching for a tax manager almost at the same time. Those are not vague "finance transformation" signs. They are visible signals that indirect-tax complexity is showing up before durable ownership does.
+    markdown: `Today's queue is sharper than yesterday because the strongest names are no longer just showing generic growth signals. **Northline Commerce** now has a Canada and UK rollout plus a fresh Senior Tax Operations opening in the same cluster, which makes the tax-surface expansion explicit. **LedgerLoop** is in a similar position: it launched a NetSuite connector, widened EMEA billing coverage, and had VP Finance **Melissa Tran** searching for a tax manager almost at the same time. Those are not vague "finance transformation" signs. They are visible signals that indirect-tax complexity is showing up before durable ownership does.
 
 **ParcelMint** also advanced today, but for a different reason. CFO **Elena Park** said on a webinar that VAT reconciliation was still too manual while the company pushed deeper into Germany and France. That matters because Taxwire does not need every target to publish a tax roadmap. In many cases, the better signal is an executive describing operational drag in public while the company continues expanding. That puts ParcelMint on the board as a live watch rather than just another international growth story.
 
-The reason this should feel like a daily view and not a one-off AI memo is that the ranking is changing with each new signal. **BeaconGrid** is still on the board, but it has not moved up yet because the reseller-program story is only indirectly tied to tax pain through finance director **Joel Mercer** talking about partner-deal treatment. **CinderPay** is even less mature: multi-entity billing and a tax-systems hire suggest something may be forming, but the urgency is still implied rather than confirmed. In other words, the list is not just "good fit companies." It is a live board of who is actually moving closer to a Taxwire buying moment.
+The ranking should feel live because it shifts every time a new signal lands—not a static fit list you have to re-read from scratch. **BeaconGrid** is still on the board, but it has not moved up yet because the reseller-program story is only indirectly tied to tax pain through finance director **Joel Mercer** talking about partner-deal treatment. **CinderPay** is even less mature: multi-entity billing and a tax-systems hire suggest something may be forming, but the urgency is still implied rather than confirmed. In other words, the list is not just "good fit companies." It is a live board of who is actually moving closer to a Taxwire buying moment.
 
-The practical takeaway is that Taxwire should bias the daily queue toward accounts where a named expansion event, a billing or ERP change, and a visible tax or finance signal are colliding in real time. Right now that means **Northline Commerce** and **LedgerLoop** are first-call names, **ParcelMint** is a strong narrative-led follow, and **BeaconGrid** plus **CinderPay** stay in monitored status until one more signal hardens the case.`,
+If you only have time for a few touches today, start with **Northline Commerce** and **LedgerLoop**—expansion, systems change, and tax signals are colliding now. **ParcelMint** is your best narrative-led follow. Keep **BeaconGrid** and **CinderPay** on watch until one more signal makes the case worth real outbound spend.`,
     drivers: [
       'Northline Commerce paired its Canada and UK rollout with a new Senior Tax Operations opening.',
       'LedgerLoop stacked a NetSuite connector launch, EMEA billing expansion, and Melissa Tran\'s tax-manager search into one signal cluster.',
@@ -24,58 +24,58 @@ The practical takeaway is that Taxwire should bias the daily queue toward accoun
     ],
     sinceLastPass: [
       {
-        label: 'Northline Commerce moved up',
-        note: 'A tax-ops hiring signal joined the cross-border rollout, so this is no longer just an expansion story.',
+        label: 'Northline Commerce — up in queue',
+        note: 'Tax-ops hiring joined the Canada/UK rollout. Worth a first call today.',
       },
       {
-        label: 'LedgerLoop hardened',
-        note: 'The NetSuite and EMEA billing cluster now looks like a real tax-systems inflection, not a generic finance-upgrade narrative.',
+        label: 'LedgerLoop — stronger timing',
+        note: 'NetSuite + EMEA billing + Melissa Tran hiring now read as a real tax-systems moment, not generic finance uplift.',
       },
       {
-        label: 'BeaconGrid held',
-        note: 'Still interesting, but partner-motion complexity is visible faster than the tax urgency itself.',
+        label: 'BeaconGrid — hold',
+        note: 'Partner motion is visible; tax urgency still indirect. Don’t burn cycles until one more signal.',
       },
     ],
   },
   workspace: {
     intro:
-      'This workspace is tuned for Taxwire. It is tracking which named accounts actually advanced, held, or cooled since the prior refresh so the team can work from live tax-pressure signals instead of static fit scoring.',
+      'Your Taxwire board for today: who moved up, who cooled, and which accounts are worth outbound cycles right now—ranked on live tax-pressure signals, not static ICP fit.',
     movements: [
       {
         id: 'm1',
         account: 'Northline Commerce',
         direction: 'UP',
         detail:
-          'Moved into the top tier after the Senior Tax Operations opening made the Canada and UK rollout look like active tax-surface expansion rather than generic growth.',
+          'Promoted to top tier: Senior Tax Operations hire + Canada/UK rollout = tax surface expanding, not just revenue.',
       },
       {
         id: 'm2',
         account: 'LedgerLoop',
         direction: 'UP',
         detail:
-          'The Melissa Tran hiring signal now sits on top of the NetSuite and EMEA billing changes, which makes the tax-systems timing much more concrete.',
+          'Melissa Tran tax-manager search stacked on NetSuite + EMEA billing—timing for a tax-systems conversation just got concrete.',
       },
       {
         id: 'm3',
         account: 'ParcelMint',
         direction: 'NEW',
         detail:
-          'Elena Park\'s VAT reconciliation comment pushed ParcelMint from ambient watch into a real outbound candidate because the pain was described publicly.',
+          'Elena Park called out manual VAT reconciliation on a webinar—enough public pain to move from watch to outbound-ready.',
       },
       {
         id: 'm4',
         account: 'BeaconGrid',
         direction: 'HOLD',
         detail:
-          'Still on the board, but it needs one more direct tax or finance-process signal before it should compete with Northline or LedgerLoop for attention.',
+          'Still on the board. Needs one more direct tax or finance-process signal before it competes with Northline or LedgerLoop for your time.',
       },
     ],
     questions: [
       {
         id: 'q1',
-        title: 'Which tracked accounts are entering new jurisdictions before they have a real indirect-tax owner in seat?',
+        title: 'Expansion before tax ownership is in place',
         whyItMatters:
-          'Northline Commerce, ParcelMint, and CinderPay all show expansion language, but only one has clearly staffed ahead of the problem. That is where Taxwire can step in before manual process calcifies.',
+          'Northline, ParcelMint, and CinderPay are all pushing into new markets—but only one shows signs of staffing ahead of the problem. That gap is where Taxwire wins before spreadsheets become the system of record.',
         status: 'ACTIVE',
         signalRefs: [
           'Northline Commerce: Canada/UK rollout',
@@ -85,9 +85,9 @@ The practical takeaway is that Taxwire should bias the daily queue toward accoun
       },
       {
         id: 'q2',
-        title: 'Which ERP or billing changes are likely to surface tax logic problems inside finance ops over the next quarter?',
+        title: 'Billing or ERP changes surfacing tax pain',
         whyItMatters:
-          'LedgerLoop and CinderPay both changed core billing or systems posture. That often exposes weak nexus mapping, invoice treatment issues, and brittle filing handoffs.',
+          'LedgerLoop and CinderPay both moved core systems. That usually exposes nexus gaps, invoice edge cases, and filing handoffs finance is still patching manually.',
         status: 'VERIFYING',
         signalRefs: [
           'LedgerLoop: NetSuite connector',
@@ -97,9 +97,9 @@ The practical takeaway is that Taxwire should bias the daily queue toward accoun
       },
       {
         id: 'q3',
-        title: 'Which executives are already speaking in a way that reveals tax pain without explicitly calling it a tax problem?',
+        title: 'Exec quotes that reveal tax drag without saying “tax”',
         whyItMatters:
-          'When finance leaders talk about reconciliation drag, market-entry friction, or partner invoicing exceptions, the commercial opening is usually much closer than a formal RFP.',
+          'When CFOs talk about reconciliation drag, market-entry friction, or partner invoicing exceptions, the deal is often closer than a formal RFP—especially if you reach them while they are still describing the pain publicly.',
         status: 'WATCH',
         signalRefs: [
           'Elena Park on VAT reconciliation',
@@ -245,14 +245,14 @@ The practical takeaway is that Taxwire should bias the daily queue toward accoun
       },
     ],
     unknowns: [
-      'Which of these companies already have a tax consultant or outsourced filing setup that would blunt near-term urgency?',
-      'Are Northline Commerce and LedgerLoop treating tax hiring as a stopgap before tooling, or as the long-term answer?',
-      'Which partner or marketplace motions create real nexus exposure versus just modest invoicing edge cases?',
+      'Do any of these accounts already have a tax consultant or outsourced filing that kills near-term urgency?',
+      'Are Northline and LedgerLoop hiring tax ops as a bridge to tooling—or as the permanent fix?',
+      'Which partner motions are real nexus events vs. minor invoicing noise?',
     ],
     nextMoves: [
-      'Track whether Northline Commerce and LedgerLoop add follow-on roles in tax, RevOps, or finance systems over the next two weeks.',
-      'Watch for implementation language around NetSuite, international billing, or VAT reporting that makes the tax problem more concrete.',
-      'Collect one more named signal on BeaconGrid and CinderPay before moving them into Taxwire\'s higher-priority outbound tier.',
+      'See if Northline or LedgerLoop post follow-on tax, RevOps, or finance-systems roles in the next two weeks.',
+      'Watch for NetSuite, international billing, or VAT implementation language that makes the pain concrete enough to outbound on.',
+      'Get one more named signal on BeaconGrid and CinderPay before promoting them into your top outbound tier.',
     ],
   },
 }

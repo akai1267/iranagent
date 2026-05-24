@@ -13,10 +13,9 @@ export default function About() {
       <section className="about-section card">
         <div className="overline">HOW TO READ IT</div>
         <p>
-          The left pane is the executive read. It gives the short answer to what is changing in the market and where
-          GTM opportunity seems to be forming. The right pane is the deeper workspace. It shows the questions the model
-          is working through, the opportunity patterns it sees, the accounts it keeps circling, and what still needs to
-          be validated.
+          The left pane is your daily brief: what changed, who moved in the queue, and the signals behind it. The right
+          pane is your account board: queue movers, active lanes to work, play patterns, priority accounts, and what to
+          watch on the next check-in.
         </p>
       </section>
 

@@ -19,7 +19,7 @@ export default function IntelSummaryPane({ snapshot, loading, error }) {
   if (loading) {
     return (
       <section className="left-pane intel-summary-pane">
-        <p className="muted-row">Loading executive read...</p>
+        <p className="muted-row">Loading today&apos;s brief...</p>
       </section>
     )
   }
@@ -37,7 +37,7 @@ export default function IntelSummaryPane({ snapshot, loading, error }) {
       <header className="pane-header">
         <div>
           <div className="overline">{snapshot.windowLabel.toUpperCase()}</div>
-          <h2 className="pane-title">Executive Read</h2>
+          <h2 className="pane-title">Today&apos;s Brief</h2>
         </div>
         <div className="pane-header-meta">
           <span className="timestamp">Updated {formatDateTime(snapshot.generatedAt)}</span>
@@ -47,7 +47,7 @@ export default function IntelSummaryPane({ snapshot, loading, error }) {
       </header>
 
       <section className="topline-card card">
-        <div className="overline">TOPLINE</div>
+        <div className="overline">BOTTOM LINE</div>
         <p className="topline-text">{snapshot.executiveRead.topline}</p>
       </section>
 
@@ -64,7 +64,7 @@ export default function IntelSummaryPane({ snapshot, loading, error }) {
 
       {snapshot.executiveRead.sinceLastPass?.length ? (
         <section className="card shifts-card">
-          <div className="overline">SINCE LAST PASS</div>
+          <div className="overline">SINCE YOUR LAST CHECK</div>
           <ul className="drivers-list">
             {snapshot.executiveRead.sinceLastPass.map((item) => (
               <li key={item.label}>
@@ -80,7 +80,7 @@ export default function IntelSummaryPane({ snapshot, loading, error }) {
       </article>
 
       <section className="card drivers-card">
-        <div className="overline">WHAT IS DRIVING THIS</div>
+        <div className="overline">KEY SIGNALS</div>
         <ul className="drivers-list">
           {snapshot.executiveRead.drivers.map((driver) => (
             <li key={driver}>{driver}</li>
